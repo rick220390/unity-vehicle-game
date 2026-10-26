@@ -19,6 +19,8 @@ public class VehicleAudio : MonoBehaviour
     public AudioClip enginePeakRev;
     [Tooltip("Played once at each simulated gear change.")]
     public AudioClip gearChange;
+    [Tooltip("Played once when the driver releases the accelerator after revving. Use a short high-to-low RPM recording.")]
+    public AudioClip engineDeceleration;
     [Tooltip("Played once when the driver exits and shuts the vehicle down.")]
     public AudioClip engineShutdown;
 
@@ -53,6 +55,7 @@ public class VehicleAudio : MonoBehaviour
     private AudioSource oneShotSource;
     private AudioSource revPlaybackSource;
     private AudioSource peakRevSource;
+    private AudioSource decelerationSource;
     private bool engineRunning;
     private bool loopSoundsStarted;
     private float startDelayRemaining;
@@ -76,6 +79,8 @@ public class VehicleAudio : MonoBehaviour
         revPlaybackSource.volume = 1f;
         peakRevSource = CreateSource("Engine Peak Rev", enginePeakRev, true);
         peakRevSource.volume = 0f;
+        decelerationSource = CreateSource("Engine Deceleration", engineDeceleration, false);
+        decelerationSource.loop = false;
 
         idleSource.volume = 0f;
         revSource.volume = 0f;
@@ -150,6 +155,7 @@ public class VehicleAudio : MonoBehaviour
         revSource.Stop();
         revPlaybackSource.Stop();
         peakRevSource.Stop();
+        decelerationSource.Stop();
         simulatedRpm = 0f;
         simulatedGear = 1;
         throttleWasApplied = false;
@@ -192,6 +198,21 @@ public class VehicleAudio : MonoBehaviour
         float throttle = engineRunning && vehicle != null
             ? Mathf.Clamp01(Mathf.Abs(vehicle.Throttle))
             : 0f;
+
+        // Detect the transition from accelerator pressed to released once,
+        // before throttleWasApplied is updated later in this method.
+        bool throttleReleased = engineRunning && throttleWasApplied && throttle <= 0.08f;
+        if (throttleReleased && engineDeceleration != null)
+        {
+            decelerationSource.Stop();
+            decelerationSource.clip = engineDeceleration;
+            decelerationSource.loop = false;
+            decelerationSource.Play();
+        }
+
+        // Reapplying throttle cuts the falling-RPM recording cleanly.
+        if (throttle > 0.12f && decelerationSource.isPlaying)
+            decelerationSource.Stop();
 
         float speedKph = vehicle != null ? vehicle.Speed * 3.6f : 0f;
         bool stationary = speedKph <= stationarySpeedKph;
