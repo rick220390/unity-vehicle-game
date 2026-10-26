@@ -60,7 +60,8 @@ public class VehicleAudio : MonoBehaviour
         // restart at simulated gear changes instead of looping like a stutter.
         revSource = CreateSource("Engine Rev", engineRev, false);
         oneShotSource = CreateSource("Engine One Shots", null, false);
-        revPlaybackSource = CreateSource("Engine Rev Playback", engineRev, false);
+        revPlaybackSource = CreateSource("Engine Rev Playback", engineRev, true);
+        revPlaybackSource.loop = true;
         revPlaybackSource.volume = 1f;
 
         idleSource.volume = 0f;
@@ -162,6 +163,7 @@ public class VehicleAudio : MonoBehaviour
         // Stop and replay from the beginning to create a clear gear-change drop.
         revPlaybackSource.Stop();
         revPlaybackSource.clip = engineRev;
+        revPlaybackSource.loop = true;
         revPlaybackSource.pitch = Mathf.Max(0.1f, startingPitch);
         revPlaybackSource.volume = revVolume;
         revPlaybackSource.Play();
@@ -206,6 +208,9 @@ public class VehicleAudio : MonoBehaviour
             if (speedFactor < 0.08f && simulatedRpm < 0.12f)
                 simulatedGear = 1;
         }
+
+        if (revPlaybackSource != null && (!engineRunning || throttle <= 0.08f))
+            revPlaybackSource.Stop();
 
         float rpmBlend = Mathf.Clamp01(simulatedRpm);
         float revBlend = engineRunning
