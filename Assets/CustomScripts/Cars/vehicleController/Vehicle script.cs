@@ -24,21 +24,21 @@ public class Vehicle : MonoBehaviour
     public bool updateWheelVisuals = true;
 
     [Header("Engine and gearbox feel")]
-    [Min(100f)] public float motorTorque = 1800f;
+    [Min(100f)] public float motorTorque = 2600f;
     [Min(500f)] public float maxMotorTorqueAtLowSpeed = 2200f;
     [Min(1f)] public float maxSpeedKph = 150f;
     [Min(1f)] public float maxReverseSpeedKph = 30f;
-    [Min(100f)] public float serviceBrakeTorque = 3000f;
+    [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
-    [Min(0f)] public float engineBrakeTorque = 120f;
+    [Min(0f)] public float engineBrakeTorque = 80f;
     [Min(0.1f)] public float throttleResponse = 3f;
     [Min(0.1f)] public float brakeResponse = 8f;
 
     [Header("Steering")]
-    [Range(5f, 50f)] public float maxSteerAngle = 38f;
-    [Range(5f, 25f)] public float highSpeedSteerAngle = 12f;
-    [Min(1f)] public float steeringFullSpeedKph = 100f;
-    [Min(0.1f)] public float steeringResponse = 7f;
+    [Range(5f, 55f)] public float maxSteerAngle = 45f;
+    [Range(5f, 30f)] public float highSpeedSteerAngle = 16f;
+    [Min(1f)] public float steeringFullSpeedKph = 140f;
+    [Min(0.1f)] public float steeringResponse = 10f;
 
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
@@ -47,9 +47,9 @@ public class Vehicle : MonoBehaviour
     [Min(100f)] public float suspensionDamper = 4500f;
     [Range(0.1f, 5f)] public float forwardGrip = 1.15f;
     [Tooltip("Lateral grip for steering/front wheels. Higher values resist understeer less only when the front tyres have enough grip.")]
-    [Range(0.1f, 5f)] public float frontSidewaysGrip = 1.3f;
+    [Range(0.1f, 5f)] public float frontSidewaysGrip = 1.5f;
     [Tooltip("Lateral grip for non-steering/rear wheels. Lower values make a rear-wheel-drive car easier to slide.")]
-    [Range(0.1f, 5f)] public float rearSidewaysGrip = 0.95f;
+    [Range(0.1f, 5f)] public float rearSidewaysGrip = 0.55f;
     [Range(0.1f, 5f)] public float handbrakeRearGrip = 0.55f;
     [Tooltip("Reduces brake torque when a grounded wheel is close to locking, approximating ABS.")]
     public bool useABS = true;
