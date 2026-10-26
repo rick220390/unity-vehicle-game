@@ -4,29 +4,36 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody))]
 public class Vehicle : MonoBehaviour
 {
-    // Registry so the player can find cars without layers or physics queries
+    // Registry so the player can find cars without layers or physics queries.
     public static readonly List<Vehicle> All = new List<Vehicle>();
 
     [Header("Points")]
     public Transform seatPoint;
-    public Transform cameraPoint;          // unused for now (future first-person view)
-    public Transform[] exitPoints;         // driver side first
+    public Transform cameraPoint;          // Optional first-person camera point.
+    public Transform[] exitPoints;         // Driver side first.
 
-    [Header("Arcade driving (m/s^2, m/s)")]
-    public float acceleration = 12f;
-    public float maxSpeed = 25f;
-    public float maxReverseSpeed = 8f;
-    public float brakeDeceleration = 20f;      // throttle opposite to motion
-    public float coastDeceleration = 3f;       // no input / no driver
-    public float handbrakeDeceleration = 25f;
-    public float maxSteerRate = 100f;          // degrees per second
-    public float steerFullSpeed = 6f;          // speed at which steering is at full strength
-    public float sideGrip = 6f;                // higher = less sliding sideways
-    public float groundCheckDistance = 0.4f;   // extra reach below the collider's bottom
+    [Header("Driving (m/s² and m/s)")]
+    [Min(0.1f)] public float acceleration = 10f;
+    [Min(1f)] public float maxSpeed = 32f;
+    [Min(1f)] public float maxReverseSpeed = 9f;
+    [Min(1f)] public float brakeDeceleration = 18f;
+    [Min(0f)] public float coastDeceleration = 1.2f;
+    [Min(1f)] public float handbrakeDeceleration = 14f;
+
+    [Header("Steering and grip")]
+    [Min(1f)] public float maxSteerRate = 75f;
+    [Min(1f)] public float steerFullSpeed = 8f;
+    [Min(0f)] public float sideGrip = 5f;
+    [Range(0f, 1f)] public float handbrakeGripMultiplier = 0.22f;
+    [Min(0.1f)] public float steeringResponse = 5f;
+    [Min(0f)] public float groundCheckDistance = 0.45f;
 
     [Header("Physics")]
-    public Vector3 centerOfMassOffset = new Vector3(0f, -0.4f, 0f);
-    public bool autoSlipperyMaterial = true;   // box has no wheels, so remove ground friction
+    public Vector3 centerOfMassOffset = new Vector3(0f, -0.45f, 0f);
+    public bool autoSlipperyMaterial = true;
+    [Min(0f)] public float linearDamping = 0.03f;
+    [Min(0f)] public float angularDamping = 1.5f;
+    [Min(1f)] public float maxAngularVelocity = 3f;
 
     [Header("Debug (read only, watch while playing)")]
     public bool debugGrounded;
@@ -35,15 +42,18 @@ public class Vehicle : MonoBehaviour
     public bool debugHasDriver;
 
     public bool HasDriver { get; private set; }
-    public float Throttle { get; private set; }   // -1..1
-    public float Steer { get; private set; }      // -1..1
+    public float Throttle { get; private set; }
+    public float Steer { get; private set; }
     public bool Handbrake { get; private set; }
     public float Speed => Velocity.magnitude;
     public Collider BodyCollider { get; private set; }
 
-    Rigidbody rb;
+    private Rigidbody rb;
+    private readonly RaycastHit[] groundHits = new RaycastHit[16];
+    private PhysicMaterial createdMaterial3D;
+    private PhysicsMaterial createdMaterial6;
 
-    Vector3 Velocity
+    private Vector3 Velocity
     {
         get
         {
@@ -55,42 +65,59 @@ public class Vehicle : MonoBehaviour
         }
     }
 
-    void Awake()
+    private void Awake()
     {
         rb = GetComponent<Rigidbody>();
         BodyCollider = GetComponent<Collider>();
 
+        // Interpolation smooths rendered movement between fixed physics steps.
+        // This is the main defence against visible judder when following a Rigidbody.
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        rb.maxAngularVelocity = maxAngularVelocity;
+        rb.drag = linearDamping;
+        rb.angularDrag = angularDamping;
         rb.ResetCenterOfMass();
         rb.centerOfMass += centerOfMassOffset;
 
         if (autoSlipperyMaterial && BodyCollider != null)
         {
 #if UNITY_6000_0_OR_NEWER
-            var mat = new PhysicsMaterial("CarSlide")
+            createdMaterial6 = new PhysicsMaterial("CarSlide")
             {
-                dynamicFriction = 0.05f,
-                staticFriction = 0.05f,
+                dynamicFriction = 0.08f,
+                staticFriction = 0.08f,
                 frictionCombine = PhysicsMaterialCombine.Minimum
             };
+            BodyCollider.sharedMaterial = createdMaterial6;
 #else
-            var mat = new PhysicMaterial("CarSlide")
+            createdMaterial3D = new PhysicMaterial("CarSlide")
             {
-                dynamicFriction = 0.05f,
-                staticFriction = 0.05f,
+                dynamicFriction = 0.08f,
+                staticFriction = 0.08f,
                 frictionCombine = PhysicMaterialCombine.Minimum
             };
+            BodyCollider.sharedMaterial = createdMaterial3D;
 #endif
-            BodyCollider.sharedMaterial = mat;
         }
     }
 
-    void OnEnable()  { All.Add(this); }
-    void OnDisable() { All.Remove(this); }
+    private void OnEnable()
+    {
+        if (!All.Contains(this))
+            All.Add(this);
+    }
 
-    // Called by the player when entering / exiting
+    private void OnDisable()
+    {
+        All.Remove(this);
+    }
+
     public bool TryReserve()
     {
-        if (HasDriver) return false;
+        if (HasDriver)
+            return false;
+
         HasDriver = true;
         return true;
     }
@@ -101,7 +128,7 @@ public class Vehicle : MonoBehaviour
         SetInput(0f, 0f, false);
     }
 
-    // The ONLY way anything controls the car
+    // The only way external scripts should control the car.
     public void SetInput(float throttle, float steer, bool handbrake = false)
     {
         Throttle = Mathf.Clamp(throttle, -1f, 1f);
@@ -109,64 +136,138 @@ public class Vehicle : MonoBehaviour
         Handbrake = handbrake;
     }
 
-    void FixedUpdate()
+    private void FixedUpdate()
     {
-        // Only drive / grip while touching ground
-        Vector3 origin = BodyCollider != null ? BodyCollider.bounds.center : transform.position + Vector3.up * 0.5f;
-        float reach = (BodyCollider != null ? BodyCollider.bounds.extents.y : 0.5f) + groundCheckDistance;
-        bool grounded = Physics.Raycast(origin, Vector3.down, reach, ~0, QueryTriggerInteraction.Ignore);
+        bool grounded = CheckGrounded();
 
         debugGrounded = grounded;
         debugThrottle = Throttle;
         debugSpeed = Speed;
         debugHasDriver = HasDriver;
 
-        if (!grounded) return;
+        if (!grounded)
+            return;
 
         float dt = Time.fixedDeltaTime;
-        Vector3 vel = Velocity;
-        float fwd = Vector3.Dot(vel, transform.forward);
-        float lateral = Vector3.Dot(vel, transform.right);
-
+        Vector3 velocity = Velocity;
+        float forwardSpeed = Vector3.Dot(velocity, transform.forward);
+        float lateralSpeed = Vector3.Dot(velocity, transform.right);
         float throttle = HasDriver ? Throttle : 0f;
-        float change;   // desired change in forward speed this step
 
+        // Accelerate smoothly toward the speed limit. Opposite input brakes first,
+        // then allows the car to move in the opposite direction without a speed snap.
         if (HasDriver && Handbrake)
         {
-            change = -Mathf.Sign(fwd) * Mathf.Min(handbrakeDeceleration * dt, Mathf.Abs(fwd));
+            forwardSpeed = Mathf.MoveTowards(
+                forwardSpeed, 0f, handbrakeDeceleration * dt);
         }
         else if (Mathf.Abs(throttle) > 0.01f)
         {
-            bool opposing = Mathf.Abs(fwd) > 0.5f && Mathf.Sign(throttle) != Mathf.Sign(fwd);
-            if (opposing)
+            bool brakingAgainstMotion =
+                Mathf.Abs(forwardSpeed) > 0.35f &&
+                Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
+
+            if (brakingAgainstMotion)
             {
-                change = Mathf.Sign(throttle) * brakeDeceleration * dt;
+                forwardSpeed = Mathf.MoveTowards(
+                    forwardSpeed, 0f, brakeDeceleration * Mathf.Abs(throttle) * dt);
             }
             else
             {
                 float limit = throttle > 0f ? maxSpeed : maxReverseSpeed;
-                float room = 1f - Mathf.Clamp01(Mathf.Abs(fwd) / limit);
-                change = throttle * acceleration * room * dt;
+                float speedRoom = 1f - Mathf.Clamp01(Mathf.Abs(forwardSpeed) / limit);
+                forwardSpeed += throttle * acceleration * speedRoom * dt;
+                forwardSpeed = Mathf.Clamp(forwardSpeed, -maxReverseSpeed, maxSpeed);
             }
         }
         else
         {
-            change = -Mathf.Sign(fwd) * Mathf.Min(coastDeceleration * dt, Mathf.Abs(fwd));
+            forwardSpeed = Mathf.MoveTowards(
+                forwardSpeed, 0f, coastDeceleration * dt);
         }
 
-        // Forward speed change + cancel sideways slide (cheap tire grip)
-        Vector3 dv = transform.forward * change
-                   - transform.right * lateral * Mathf.Clamp01(sideGrip * dt);
-        rb.AddForce(dv, ForceMode.VelocityChange);
+        // Rebuild the forward component while damping sideways sliding like tire grip.
+        // Holding the handbrake reduces rear grip so the car can slide into a turn.
+        float grip = sideGrip * (HasDriver && Handbrake ? handbrakeGripMultiplier : 1f);
+        lateralSpeed = Mathf.MoveTowards(lateralSpeed, 0f, grip * Mathf.Max(1f, Mathf.Abs(forwardSpeed)) * dt);
 
-        // Steering: yaw rate scales with speed, flips when reversing
+        Vector3 verticalVelocity = Vector3.Project(velocity, Vector3.up);
+        Vector3 targetVelocity =
+            transform.forward * forwardSpeed +
+            transform.right * lateralSpeed +
+            verticalVelocity;
+
+        SetVelocity(targetVelocity);
+
+        // Steering builds with speed, but is deliberately gentler at high speed.
+        // Reverse steering naturally changes direction because forwardSpeed is signed.
         if (HasDriver)
         {
-            float steerFactor = Mathf.Clamp(fwd / steerFullSpeed, -1f, 1f);
-            float targetYaw = Steer * maxSteerRate * Mathf.Deg2Rad * steerFactor;
-            Vector3 av = rb.angularVelocity;
-            av.y = Mathf.Lerp(av.y, targetYaw, 1f - Mathf.Exp(-10f * dt));
-            rb.angularVelocity = av;
+            float speedFactor = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / steerFullSpeed);
+            float highSpeedReduction = 1f - 0.35f * Mathf.Clamp01(
+                (Mathf.Abs(forwardSpeed) - steerFullSpeed) / Mathf.Max(1f, maxSpeed - steerFullSpeed));
+            float direction = forwardSpeed < -0.1f ? -1f : 1f;
+            float targetYawRate = Steer * maxSteerRate * Mathf.Deg2Rad *
+                                  speedFactor * highSpeedReduction * direction;
+
+            Vector3 angularVelocity = rb.angularVelocity;
+            angularVelocity.y = Mathf.Lerp(
+                angularVelocity.y,
+                targetYawRate,
+                1f - Mathf.Exp(-steeringResponse * dt));
+            rb.angularVelocity = angularVelocity;
         }
+        else
+        {
+            Vector3 angularVelocity = rb.angularVelocity;
+            angularVelocity.y = Mathf.MoveTowards(angularVelocity.y, 0f, steeringResponse * dt);
+            rb.angularVelocity = angularVelocity;
+        }
+    }
+
+    private bool CheckGrounded()
+    {
+        Vector3 origin = BodyCollider != null
+            ? BodyCollider.bounds.center
+            : transform.position + Vector3.up * 0.5f;
+        float reach = (BodyCollider != null ? BodyCollider.bounds.extents.y : 0.5f)
+                      + groundCheckDistance;
+
+        int hitCount = Physics.RaycastNonAlloc(
+            origin, Vector3.down, groundHits, reach, ~0,
+            QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider hitCollider = groundHits[i].collider;
+            if (hitCollider == null)
+                continue;
+
+            // Ignore all colliders belonging to this car.
+            if (hitCollider.transform == transform ||
+                hitCollider.transform.IsChildOf(transform))
+                continue;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SetVelocity(Vector3 value)
+    {
+#if UNITY_6000_0_OR_NEWER
+        rb.linearVelocity = value;
+#else
+        rb.velocity = value;
+#endif
+    }
+
+    private void OnDestroy()
+    {
+        if (createdMaterial3D != null)
+            Destroy(createdMaterial3D);
+        if (createdMaterial6 != null)
+            Destroy(createdMaterial6);
     }
 }
