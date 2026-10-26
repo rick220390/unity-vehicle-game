@@ -28,6 +28,14 @@ public class VehicleAudio : MonoBehaviour
     [Min(0.1f)] public float revPitchAtFullThrottle = 1.45f;
     [Min(0.1f)] public float pitchResponse = 4f;
     [Min(0.1f)] public float volumeResponse = 4f;
+    [Header("Simulated RPM and gears")]
+    [Tooltip("For a short accelerating/rev recording, enable this to ramp the sound up and restart it at simulated gear changes.")]
+    public bool simulateGearShifts = true;
+    [Range(2, 8)] public int simulatedGears = 5;
+    [Range(0.5f, 0.99f)] public float shiftRpm = 0.88f;
+    [Range(0.1f, 0.8f)] public float rpmAfterShift = 0.48f;
+    [Min(0.1f)] public float rpmRiseResponse = 0.8f;
+    [Min(0.1f)] public float rpmFallResponse = 0.55f;
     [Min(0f)] public float startDistance = 8f;
     [Min(1f)] public float maxDistance = 100f;
 
@@ -39,13 +47,17 @@ public class VehicleAudio : MonoBehaviour
     private bool loopSoundsStarted;
     private float startDelayRemaining;
     private bool throttleWasApplied;
+    private float simulatedRpm;
+    private int simulatedGear = 1;
 
     private void Awake()
     {
         vehicle = GetComponent<Vehicle>();
 
         idleSource = CreateSource("Engine Idle", engineIdle, true);
-        revSource = CreateSource("Engine Rev", engineRev, revSoundIsLoop);
+        // The rev source is controlled manually so short acceleration clips can
+        // restart at simulated gear changes instead of looping like a stutter.
+        revSource = CreateSource("Engine Rev", engineRev, false);
         oneShotSource = CreateSource("Engine One Shots", null, false);
 
         idleSource.volume = 0f;
@@ -85,7 +97,7 @@ public class VehicleAudio : MonoBehaviour
             {
                 loopSoundsStarted = true;
                 StartLoop(idleSource);
-                if (revSoundIsLoop)
+                if (revSoundIsLoop && !simulateGearShifts)
                     StartLoop(revSource);
             }
         }
@@ -106,7 +118,7 @@ public class VehicleAudio : MonoBehaviour
         {
             loopSoundsStarted = true;
             StartLoop(idleSource);
-            if (revSoundIsLoop)
+            if (revSoundIsLoop && !simulateGearShifts)
                 StartLoop(revSource);
         }
     }
@@ -119,6 +131,9 @@ public class VehicleAudio : MonoBehaviour
 
         idleSource.Stop();
         revSource.Stop();
+        simulatedRpm = 0f;
+        simulatedGear = 1;
+        throttleWasApplied = false;
         idleSource.volume = 0f;
         revSource.volume = 0f;
 
@@ -138,26 +153,58 @@ public class VehicleAudio : MonoBehaviour
     private void UpdateEngineSound(float dt)
     {
         float throttle = engineRunning && vehicle != null
-            ? Mathf.Abs(vehicle.Throttle)
+            ? Mathf.Clamp01(Mathf.Abs(vehicle.Throttle))
             : 0f;
 
-        // A little road-speed influence keeps the sound responsive while cruising,
-        // but throttle is the main driver of the temporary engine-RPM illusion.
-        float speedFactor = vehicle != null
-            ? Mathf.Clamp01(vehicle.Speed / 35f)
+        float speedFactor = vehicle != null && vehicle.maxSpeedKph > 0f
+            ? Mathf.Clamp01((vehicle.Speed * 3.6f) / vehicle.maxSpeedKph)
             : 0f;
+
+        // Approximate engine RPM: throttle raises RPM, while releasing the
+        // accelerator lets RPM fall. A gear change drops RPM and restarts the
+        // acceleration recording so it sounds like the next gear pulling.
+        if (engineRunning && throttle > 0.08f)
+        {
+            simulatedRpm = Mathf.MoveTowards(
+                simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
+
+            if (simulateGearShifts && !revSoundIsLoop &&
+                simulatedRpm >= shiftRpm && simulatedGear < Mathf.Max(2, simulatedGears))
+            {
+                simulatedGear++;
+                simulatedRpm = rpmAfterShift;
+
+                if (engineRev != null && loopSoundsStarted)
+                {
+                    revSource.Stop();
+                    revSource.pitch = revPitchAtIdle;
+                    revSource.PlayOneShot(engineRev, revVolume);
+                }
+            }
+        }
+        else
+        {
+            simulatedRpm = Mathf.MoveTowards(
+                simulatedRpm, 0f, rpmFallResponse * dt);
+
+            // When slowing right down, reset the simulated gearbox for the next pull-away.
+            if (speedFactor < 0.08f && simulatedRpm < 0.12f)
+                simulatedGear = 1;
+        }
+
+        float rpmBlend = Mathf.Clamp01(simulatedRpm);
         float revBlend = engineRunning
-            ? Mathf.Clamp01(throttle * 0.8f + speedFactor * 0.2f)
+            ? Mathf.Clamp01(rpmBlend * 0.8f + speedFactor * 0.2f)
             : 0f;
 
         float targetIdleVolume = engineRunning && loopSoundsStarted && engineIdle != null
-            ? idleVolume * (1f - revBlend * 0.35f)
+            ? idleVolume * (1f - revBlend * 0.45f)
             : 0f;
 
-        // Only a genuine sustained rev recording should play as a continuous layer.
-        // Short "brum-brum" rev clips are played once per throttle press instead.
+        // In short-clip/gear-shift mode, PlayOneShot handles each pull and shift.
+        // Keep the regular rev source silent in that mode to avoid doubling audio.
         float targetRevVolume = engineRunning && loopSoundsStarted &&
-                                engineRev != null && revSoundIsLoop
+                                engineRev != null && revSoundIsLoop && !simulateGearShifts
             ? revVolume * revBlend
             : 0f;
 
@@ -166,31 +213,40 @@ public class VehicleAudio : MonoBehaviour
         revSource.volume = Mathf.MoveTowards(
             revSource.volume, targetRevVolume, volumeResponse * dt);
 
-        // Use the idle loop as a temporary base engine sound, raising its pitch
-        // smoothly under throttle until a proper running/RPM loop is available.
         float idleTargetPitch = Mathf.Lerp(idlePitch, revPitchAtFullThrottle, revBlend);
         idleSource.pitch = Mathf.MoveTowards(
             idleSource.pitch, idleTargetPitch, pitchResponse * dt);
 
-        float targetRevPitch = Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, revBlend);
+        float targetRevPitch = Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, rpmBlend);
         revSource.pitch = Mathf.MoveTowards(
             revSource.pitch, targetRevPitch, pitchResponse * dt);
 
         if (engineRunning && loopSoundsStarted && engineRev != null)
         {
-            if (revSoundIsLoop)
+            if (revSoundIsLoop && !simulateGearShifts)
             {
                 if (!revSource.isPlaying)
                     revSource.Play();
             }
+            else if (!revSoundIsLoop && simulateGearShifts)
+            {
+                // Start the acceleration clip on throttle press. Further restarts
+                // happen only at simulated shifts, not continuously while held.
+                bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
+                if (throttlePressed && simulatedGear == 1)
+                {
+                    revSource.Stop();
+                    revSource.PlayOneShot(engineRev, revVolume);
+                }
+
+                throttleWasApplied = throttle > 0.12f;
+            }
             else
             {
-                // A one-shot rev plays on the throttle press edge only. It won't
-                // retrigger repeatedly while the accelerator is held down.
+                // Legacy one-shot mode: one clip per throttle press.
                 bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 if (throttlePressed)
                     revSource.PlayOneShot(engineRev, revVolume);
-
                 throttleWasApplied = throttle > 0.12f;
             }
         }
