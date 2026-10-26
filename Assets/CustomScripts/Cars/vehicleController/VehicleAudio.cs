@@ -40,6 +40,8 @@ public class VehicleAudio : MonoBehaviour
     [Range(2, 8)] public int simulatedGears = 5;
     [Range(0.5f, 0.99f)] public float shiftRpm = 0.88f;
     [Range(0.1f, 0.8f)] public float rpmAfterShift = 0.48f;
+    [Tooltip("Minimum time between simulated gear changes. Increase this for slower, more noticeable shifts.")]
+    [Min(0.25f)] public float gearShiftIntervalSeconds = 1.8f;
     [Min(0.1f)] public float rpmRiseResponse = 0.8f;
     [Min(0.1f)] public float rpmFallResponse = 0.55f;
     [Tooltip("Start time in seconds of the steady high-RPM tail in Engine Rev. At a standstill, the clip plays once from the beginning then loops only this tail. Adjust this to where the sound has reached maximum revs.")]
@@ -63,6 +65,7 @@ public class VehicleAudio : MonoBehaviour
     // Prevent the sustained peak loop from starting before the rising-rev clip has played.
     private bool revRampStarted;
     private float simulatedRpm;
+    private float timeSinceLastGearShift = 100f;
     private int simulatedGear = 1;
 
     private void Awake()
@@ -158,6 +161,7 @@ public class VehicleAudio : MonoBehaviour
         decelerationSource.Stop();
         simulatedRpm = 0f;
         simulatedGear = 1;
+        timeSinceLastGearShift = 100f;
         throttleWasApplied = false;
         revRampStarted = false;
         idleSource.volume = 0f;
@@ -220,6 +224,10 @@ public class VehicleAudio : MonoBehaviour
             ? Mathf.Clamp01(speedKph / vehicle.maxSpeedKph)
             : 0f;
 
+        // Add a minimum interval between shifts so RPM cannot trigger several
+        // gear changes in quick succession while the accelerator is held.
+        timeSinceLastGearShift += dt;
+
         // Approximate engine RPM: throttle raises RPM, while releasing the
         // accelerator lets RPM fall. A gear change drops RPM and restarts the
         // acceleration recording so it sounds like the next gear pulling.
@@ -229,10 +237,13 @@ public class VehicleAudio : MonoBehaviour
                 simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
 
             if (simulateGearShifts && !revSoundIsLoop && !stationary &&
-                simulatedRpm >= shiftRpm && simulatedGear < Mathf.Max(2, simulatedGears))
+                simulatedRpm >= shiftRpm &&
+                timeSinceLastGearShift >= gearShiftIntervalSeconds &&
+                simulatedGear < Mathf.Max(2, simulatedGears))
             {
                 simulatedGear++;
                 simulatedRpm = rpmAfterShift;
+                timeSinceLastGearShift = 0f;
 
                 if (engineRev != null && loopSoundsStarted)
                 {
