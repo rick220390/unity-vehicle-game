@@ -43,6 +43,7 @@ public class VehicleAudio : MonoBehaviour
     private AudioSource idleSource;
     private AudioSource revSource;
     private AudioSource oneShotSource;
+    private AudioSource revPlaybackSource;
     private bool engineRunning;
     private bool loopSoundsStarted;
     private float startDelayRemaining;
@@ -59,6 +60,8 @@ public class VehicleAudio : MonoBehaviour
         // restart at simulated gear changes instead of looping like a stutter.
         revSource = CreateSource("Engine Rev", engineRev, false);
         oneShotSource = CreateSource("Engine One Shots", null, false);
+        revPlaybackSource = CreateSource("Engine Rev Playback", engineRev, false);
+        revPlaybackSource.volume = 1f;
 
         idleSource.volume = 0f;
         revSource.volume = 0f;
@@ -150,6 +153,20 @@ public class VehicleAudio : MonoBehaviour
         source.Play();
     }
 
+
+    private void RestartRevClip(float startingPitch)
+    {
+        if (engineRev == null || revPlaybackSource == null)
+            return;
+
+        // Stop and replay from the beginning to create a clear gear-change drop.
+        revPlaybackSource.Stop();
+        revPlaybackSource.clip = engineRev;
+        revPlaybackSource.pitch = Mathf.Max(0.1f, startingPitch);
+        revPlaybackSource.volume = revVolume;
+        revPlaybackSource.Play();
+    }
+
     private void UpdateEngineSound(float dt)
     {
         float throttle = engineRunning && vehicle != null
@@ -176,9 +193,7 @@ public class VehicleAudio : MonoBehaviour
 
                 if (engineRev != null && loopSoundsStarted)
                 {
-                    revSource.Stop();
-                    revSource.pitch = revPitchAtIdle;
-                    revSource.PlayOneShot(engineRev, revVolume);
+                    RestartRevClip(revPitchAtIdle);
                 }
             }
         }
@@ -220,6 +235,12 @@ public class VehicleAudio : MonoBehaviour
         float targetRevPitch = Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, rpmBlend);
         revSource.pitch = Mathf.MoveTowards(
             revSource.pitch, targetRevPitch, pitchResponse * dt);
+        if (revPlaybackSource != null)
+        {
+            revPlaybackSource.volume = revVolume;
+            revPlaybackSource.pitch = Mathf.MoveTowards(
+                revPlaybackSource.pitch, targetRevPitch, pitchResponse * dt);
+        }
 
         if (engineRunning && loopSoundsStarted && engineRev != null)
         {
@@ -235,8 +256,7 @@ public class VehicleAudio : MonoBehaviour
                 bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 if (throttlePressed && simulatedGear == 1)
                 {
-                    revSource.Stop();
-                    revSource.PlayOneShot(engineRev, revVolume);
+                    RestartRevClip(Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, simulatedRpm));
                 }
 
                 throttleWasApplied = throttle > 0.12f;
@@ -246,7 +266,7 @@ public class VehicleAudio : MonoBehaviour
                 // Legacy one-shot mode: one clip per throttle press.
                 bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 if (throttlePressed)
-                    revSource.PlayOneShot(engineRev, revVolume);
+                    RestartRevClip(Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, simulatedRpm));
                 throttleWasApplied = throttle > 0.12f;
             }
         }
