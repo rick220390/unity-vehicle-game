@@ -246,13 +246,9 @@ public class Vehicle : MonoBehaviour
             targetBrake = Mathf.Abs(targetThrottle) * serviceBrakeTorque;
             targetThrottle = 0f;
         }
-        else if (Mathf.Abs(targetThrottle) < 0.05f)
-        {
-            // Engine braking should slow a moving car, not act as a parking brake.
-            // Fade it out near zero speed so gravity can roll the car back down a ramp.
-            float engineBrakeFactor = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / 2f);
-            targetBrake = engineBrakeTorque * engineBrakeFactor;
-        }
+        // With the accelerator released, do not apply brake torque.
+        // WheelCollider engine-braking torque can hold the car on a slope and
+        // prevent gravity from rolling it backwards naturally.
 
         if (HasDriver && Handbrake)
             targetBrake = Mathf.Max(targetBrake, handbrakeTorque);
