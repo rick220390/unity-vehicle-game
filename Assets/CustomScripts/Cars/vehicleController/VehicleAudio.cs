@@ -29,6 +29,10 @@ public class VehicleAudio : MonoBehaviour
     public bool revSoundIsLoop = true;
     [Range(0f, 1f)] public float idleVolume = 1f;
     [Range(0f, 1f)] public float revVolume = 1f;
+    [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
+    [Range(0f, 1f)] public float decelerationVolume = 1f;
+    [Tooltip("How much the idle sound is reduced while the deceleration clip plays.")]
+    [Range(0f, 1f)] public float idleVolumeDuringDeceleration = 0.2f;
     [Min(0.1f)] public float idlePitch = 0.95f;
     [Min(0.1f)] public float revPitchAtIdle = 0.9f;
     [Min(0.1f)] public float revPitchAtFullThrottle = 1.45f;
@@ -84,6 +88,10 @@ public class VehicleAudio : MonoBehaviour
         peakRevSource.volume = 0f;
         decelerationSource = CreateSource("Engine Deceleration", engineDeceleration, false);
         decelerationSource.loop = false;
+        decelerationSource.volume = decelerationVolume;
+        decelerationSource.priority = 32;
+        // Keep the falling-RPM clip clearer and less affected by distance attenuation.
+        decelerationSource.spatialBlend = 0.15f;
 
         idleSource.volume = 0f;
         revSource.volume = 0f;
@@ -291,6 +299,14 @@ public class VehicleAudio : MonoBehaviour
         float targetIdleVolume = engineRunning && loopSoundsStarted && engineIdle != null
             ? idleVolume * (1f - revBlend * 0.45f)
             : 0f;
+
+        // Let the deceleration recording stand out instead of being masked by idle audio.
+        if (decelerationSource != null)
+        {
+            decelerationSource.volume = decelerationVolume;
+            if (decelerationSource.isPlaying)
+                targetIdleVolume *= idleVolumeDuringDeceleration;
+        }
 
         // In short-clip/gear-shift mode, PlayOneShot handles each pull and shift.
         // Keep the regular rev source silent in that mode to avoid doubling audio.
