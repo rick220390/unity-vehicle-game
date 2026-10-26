@@ -38,6 +38,7 @@ public class VehicleAudio : MonoBehaviour
     private bool engineRunning;
     private bool loopSoundsStarted;
     private float startDelayRemaining;
+    private bool throttleWasApplied;
 
     private void Awake()
     {
@@ -139,38 +140,61 @@ public class VehicleAudio : MonoBehaviour
             ? Mathf.Abs(vehicle.Throttle)
             : 0f;
 
-        // Use throttle for engine load and a little road-speed influence so
-        // the sound responds even when the car is moving with light throttle.
+        // A little road-speed influence keeps the sound responsive while cruising,
+        // but throttle is the main driver of the temporary engine-RPM illusion.
         float speedFactor = vehicle != null
             ? Mathf.Clamp01(vehicle.Speed / 35f)
             : 0f;
-        float revBlend = engineRunning ? Mathf.Clamp01(throttle * 0.8f + speedFactor * 0.2f) : 0f;
+        float revBlend = engineRunning
+            ? Mathf.Clamp01(throttle * 0.8f + speedFactor * 0.2f)
+            : 0f;
 
         float targetIdleVolume = engineRunning && loopSoundsStarted && engineIdle != null
-            ? idleVolume * (1f - revBlend * 0.75f)
+            ? idleVolume * (1f - revBlend * 0.35f)
             : 0f;
-        float targetRevVolume = engineRunning && loopSoundsStarted && engineRev != null
+
+        // Only a genuine sustained rev recording should play as a continuous layer.
+        // Short "brum-brum" rev clips are played once per throttle press instead.
+        float targetRevVolume = engineRunning && loopSoundsStarted &&
+                                engineRev != null && revSoundIsLoop
             ? revVolume * revBlend
             : 0f;
 
-        idleSource.volume = Mathf.MoveTowards(idleSource.volume, targetIdleVolume, volumeResponse * dt);
-        revSource.volume = Mathf.MoveTowards(revSource.volume, targetRevVolume, volumeResponse * dt);
+        idleSource.volume = Mathf.MoveTowards(
+            idleSource.volume, targetIdleVolume, volumeResponse * dt);
+        revSource.volume = Mathf.MoveTowards(
+            revSource.volume, targetRevVolume, volumeResponse * dt);
+
+        // Use the idle loop as a temporary base engine sound, raising its pitch
+        // smoothly under throttle until a proper running/RPM loop is available.
+        float idleTargetPitch = Mathf.Lerp(idlePitch, revPitchAtFullThrottle, revBlend);
+        idleSource.pitch = Mathf.MoveTowards(
+            idleSource.pitch, idleTargetPitch, pitchResponse * dt);
 
         float targetRevPitch = Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, revBlend);
-        revSource.pitch = Mathf.MoveTowards(revSource.pitch, targetRevPitch, pitchResponse * dt);
-        idleSource.pitch = Mathf.Lerp(0.95f, 1.08f, revBlend * 0.35f);
+        revSource.pitch = Mathf.MoveTowards(
+            revSource.pitch, targetRevPitch, pitchResponse * dt);
 
-        // A short rev clip is retriggered when the player applies throttle,
-        // rather than being forced into an audible, unnatural loop.
-        if (engineRunning && loopSoundsStarted && engineRev != null && !revSoundIsLoop)
+        if (engineRunning && loopSoundsStarted && engineRev != null)
         {
-            if (throttle > 0.12f && !revSource.isPlaying)
-                revSource.PlayOneShot(engineRev, revVolume);
+            if (revSoundIsLoop)
+            {
+                if (!revSource.isPlaying)
+                    revSource.Play();
+            }
+            else
+            {
+                // A one-shot rev plays on the throttle press edge only. It won't
+                // retrigger repeatedly while the accelerator is held down.
+                bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
+                if (throttlePressed)
+                    revSource.PlayOneShot(engineRev, revVolume);
+
+                throttleWasApplied = throttle > 0.12f;
+            }
         }
-        else if (revSoundIsLoop && engineRunning && loopSoundsStarted &&
-                 engineRev != null && !revSource.isPlaying)
+        else
         {
-            revSource.Play();
+            throttleWasApplied = false;
         }
-    }
-}
+    }}
