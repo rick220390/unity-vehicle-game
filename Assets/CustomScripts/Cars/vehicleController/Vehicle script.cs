@@ -82,6 +82,8 @@ public class Vehicle : MonoBehaviour
     private float appliedSteer;
     private bool warnedNoWheels;
     private readonly List<WheelCollider> validWheels = new List<WheelCollider>();
+    private Vector3[] wheelVisualPositionOffsets;
+    private Quaternion[] wheelVisualRotationOffsets;
 
     private void Awake()
     {
@@ -97,6 +99,7 @@ public class Vehicle : MonoBehaviour
         rb.centerOfMass += centerOfMassOffset;
 
         CacheWheels();
+        CacheWheelVisualOffsets();
         ConfigureWheelColliders();
     }
 
@@ -122,6 +125,36 @@ public class Vehicle : MonoBehaviour
         {
             if (wheel != null && !validWheels.Contains(wheel))
                 validWheels.Add(wheel);
+        }
+    }
+
+    private void CacheWheelVisualOffsets()
+    {
+        if (wheelColliders == null || wheelVisuals == null)
+            return;
+
+        int count = Mathf.Min(wheelColliders.Length, wheelVisuals.Length);
+        wheelVisualPositionOffsets = new Vector3[count];
+        wheelVisualRotationOffsets = new Quaternion[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            WheelCollider wheel = wheelColliders[i];
+            Transform visual = wheelVisuals[i];
+
+            if (wheel == null || visual == null)
+            {
+                wheelVisualRotationOffsets[i] = Quaternion.identity;
+                continue;
+            }
+
+            // Preserve the model's original alignment relative to the collider's
+            // initial pose. Imported vehicle models often have different wheel axes.
+            wheel.GetWorldPose(out Vector3 wheelPosition, out Quaternion wheelRotation);
+            wheelVisualPositionOffsets[i] =
+                Quaternion.Inverse(wheelRotation) * (visual.position - wheelPosition);
+            wheelVisualRotationOffsets[i] =
+                Quaternion.Inverse(wheelRotation) * visual.rotation;
         }
     }
 
@@ -332,6 +365,16 @@ public class Vehicle : MonoBehaviour
                 continue;
 
             wheel.GetWorldPose(out Vector3 position, out Quaternion rotation);
+
+            // Apply the WheelCollider's world pose plus the visual's cached model
+            // alignment. This prevents imported wheel meshes with different local
+            // axes/offsets from snapping away from the chassis at runtime.
+            if (wheelVisualPositionOffsets != null && i < wheelVisualPositionOffsets.Length)
+                position += rotation * wheelVisualPositionOffsets[i];
+
+            if (wheelVisualRotationOffsets != null && i < wheelVisualRotationOffsets.Length)
+                rotation *= wheelVisualRotationOffsets[i];
+
             visual.SetPositionAndRotation(position, rotation);
         }
     }
