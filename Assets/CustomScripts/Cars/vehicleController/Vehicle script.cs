@@ -35,10 +35,10 @@ public class Vehicle : MonoBehaviour
     [Min(0.1f)] public float brakeResponse = 8f;
 
     [Header("Steering")]
-    [Range(5f, 45f)] public float maxSteerAngle = 32f;
-    [Range(5f, 25f)] public float highSpeedSteerAngle = 10f;
-    [Min(1f)] public float steeringFullSpeedKph = 45f;
-    [Min(0.1f)] public float steeringResponse = 5f;
+    [Range(5f, 50f)] public float maxSteerAngle = 38f;
+    [Range(5f, 25f)] public float highSpeedSteerAngle = 12f;
+    [Min(1f)] public float steeringFullSpeedKph = 100f;
+    [Min(0.1f)] public float steeringResponse = 7f;
 
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
@@ -46,8 +46,15 @@ public class Vehicle : MonoBehaviour
     [Min(1000f)] public float suspensionSpring = 35000f;
     [Min(100f)] public float suspensionDamper = 4500f;
     [Range(0.1f, 5f)] public float forwardGrip = 1.15f;
-    [Range(0.1f, 5f)] public float sidewaysGrip = 1.4f;
+    [Tooltip("Lateral grip for steering/front wheels. Higher values resist understeer less only when the front tyres have enough grip.")]
+    [Range(0.1f, 5f)] public float frontSidewaysGrip = 1.3f;
+    [Tooltip("Lateral grip for non-steering/rear wheels. Lower values make a rear-wheel-drive car easier to slide.")]
+    [Range(0.1f, 5f)] public float rearSidewaysGrip = 0.95f;
     [Range(0.1f, 5f)] public float handbrakeRearGrip = 0.55f;
+    [Tooltip("Reduces brake torque when a grounded wheel is close to locking, approximating ABS.")]
+    public bool useABS = true;
+    [Range(0.05f, 1f)] public float absSlipThreshold = 0.35f;
+    [Range(0.1f, 1f)] public float absMinimumBrakeFactor = 0.35f;
 
     [Header("Chassis physics")]
     public Vector3 centerOfMassOffset = new Vector3(0f, -0.45f, 0f);
@@ -175,7 +182,9 @@ public class Vehicle : MonoBehaviour
             wheel.forwardFriction = forward;
 
             WheelFrictionCurve sideways = wheel.sidewaysFriction;
-            sideways.stiffness = sidewaysGrip;
+            int wheelIndex = validWheels.IndexOf(wheel);
+            bool frontWheel = ContainsIndex(steeringWheelIndexes, wheelIndex);
+            sideways.stiffness = frontWheel ? frontSidewaysGrip : rearSidewaysGrip;
             wheel.sidewaysFriction = sideways;
 
             if (wheel.radius <= 0.01f)
@@ -257,7 +266,10 @@ public class Vehicle : MonoBehaviour
         bool speedLimited = speedKph >= speedLimit && Mathf.Sign(appliedThrottle) == Mathf.Sign(forwardSpeed);
         float torque = speedLimited ? 0f : appliedThrottle * motorTorque;
 
-        float speedFactor = Mathf.Clamp01(speedKph / steeringFullSpeedKph);
+        // Keep useful steering at normal road speeds, then progressively reduce
+        // the angle at high speed to avoid an abrupt, unstable steering response.
+        float speedFactor = Mathf.InverseLerp(0f, steeringFullSpeedKph, speedKph);
+        speedFactor = speedFactor * speedFactor * (3f - 2f * speedFactor);
         float steerAngle = Mathf.Lerp(maxSteerAngle, highSpeedSteerAngle, speedFactor) * appliedSteer;
 
         for (int i = 0; i < validWheels.Count; i++)
@@ -276,13 +288,26 @@ public class Vehicle : MonoBehaviour
             float brake = appliedBrake;
             if (HasDriver && Handbrake && isRearWheel)
                 brake = Mathf.Max(brake, handbrakeTorque);
+
+            // Basic ABS approximation: reduce brake torque if a grounded tyre is
+            // producing excessive longitudinal slip, rather than locking solid.
+            if (useABS && brake > 0f && wheel.GetGroundHit(out WheelHit hit) &&
+                Mathf.Abs(hit.forwardSlip) > absSlipThreshold)
+            {
+                float slipAmount = Mathf.InverseLerp(absSlipThreshold, absSlipThreshold * 2.5f,
+                    Mathf.Abs(hit.forwardSlip));
+                float brakeFactor = Mathf.Lerp(1f, absMinimumBrakeFactor, slipAmount);
+                brake *= brakeFactor;
+            }
             wheel.brakeTorque = brake;
 
-            // Rear grip drops under handbrake, enabling controlled slides.
+            // Give the front axle more lateral grip than the rear. The rear grip
+            // is reduced further under handbrake to allow controllable oversteer.
             WheelFrictionCurve sideways = wheel.sidewaysFriction;
+            float baseGrip = isSteeringWheel ? frontSidewaysGrip : rearSidewaysGrip;
             float targetGrip = HasDriver && Handbrake && isRearWheel
-                ? sidewaysGrip * handbrakeRearGrip
-                : sidewaysGrip;
+                ? baseGrip * handbrakeRearGrip
+                : baseGrip;
             sideways.stiffness = Mathf.MoveTowards(sideways.stiffness, targetGrip, 3f * dt);
             wheel.sidewaysFriction = sideways;
         }
