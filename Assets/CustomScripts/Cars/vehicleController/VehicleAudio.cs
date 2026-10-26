@@ -57,6 +57,8 @@ public class VehicleAudio : MonoBehaviour
     private bool loopSoundsStarted;
     private float startDelayRemaining;
     private bool throttleWasApplied;
+    // Prevent the sustained peak loop from starting before the rising-rev clip has played.
+    private bool revRampStarted;
     private float simulatedRpm;
     private int simulatedGear = 1;
 
@@ -151,6 +153,7 @@ public class VehicleAudio : MonoBehaviour
         simulatedRpm = 0f;
         simulatedGear = 1;
         throttleWasApplied = false;
+        revRampStarted = false;
         idleSource.volume = 0f;
         revSource.volume = 0f;
 
@@ -181,6 +184,7 @@ public class VehicleAudio : MonoBehaviour
         revPlaybackSource.pitch = Mathf.Max(0.1f, startingPitch);
         revPlaybackSource.volume = revVolume;
         revPlaybackSource.Play();
+        revRampStarted = true;
     }
 
     private void UpdateEngineSound(float dt)
@@ -235,8 +239,9 @@ public class VehicleAudio : MonoBehaviour
                 revPlaybackSource.Stop();
             if (peakRevSource.isPlaying)
                 peakRevSource.Stop();
+            revRampStarted = false;
         }
-        else if (engineRev != null && loopSoundsStarted &&
+        else if (engineRev != null && revRampStarted && loopSoundsStarted &&
                  !revPlaybackSource.isPlaying && simulatedRpm >= 0.25f)
         {
             // The short rising-RPM recording has finished. Sustain the engine
