@@ -48,6 +48,7 @@ public class VehicleAudio : MonoBehaviour
     private AudioSource revSource;
     private AudioSource oneShotSource;
     private AudioSource revPlaybackSource;
+    private AudioSource peakRevSource;
     private bool engineRunning;
     private bool loopSoundsStarted;
     private float startDelayRemaining;
@@ -67,6 +68,8 @@ public class VehicleAudio : MonoBehaviour
         revPlaybackSource = CreateSource("Engine Rev Playback", engineRev, false);
         revPlaybackSource.loop = false;
         revPlaybackSource.volume = 1f;
+        peakRevSource = CreateSource("Engine Peak Rev", enginePeakRev, true);
+        peakRevSource.volume = 0f;
 
         idleSource.volume = 0f;
         revSource.volume = 0f;
@@ -139,6 +142,8 @@ public class VehicleAudio : MonoBehaviour
 
         idleSource.Stop();
         revSource.Stop();
+        revPlaybackSource.Stop();
+        peakRevSource.Stop();
         simulatedRpm = 0f;
         simulatedGear = 1;
         throttleWasApplied = false;
@@ -203,6 +208,9 @@ public class VehicleAudio : MonoBehaviour
                 if (engineRev != null && loopSoundsStarted)
                 {
                     RestartRevClip(revPitchAtIdle);
+                    peakRevSource.Stop();
+                    if (gearChange != null)
+                        oneShotSource.PlayOneShot(gearChange);
                 }
             }
         }
@@ -216,24 +224,22 @@ public class VehicleAudio : MonoBehaviour
                 simulatedGear = 1;
         }
 
-        if (revPlaybackSource != null)
+        // Stop rev playback when the driver releases the accelerator.
+        if (!engineRunning || throttle <= 0.08f)
         {
-            if (!engineRunning || throttle <= 0.08f)
-            {
-                if (revPlaybackSource.isPlaying)
-                    revPlaybackSource.Stop();
-            }
-            else if (stationary && !revSoundIsLoop && simulateGearShifts &&
-                     engineRev != null && loopSoundsStarted &&
-                     !revPlaybackSource.isPlaying && simulatedRpm >= 0.95f)
-            {
-                // If the ramp has finished while the accelerator is held at a standstill,
-                // loop only the high-RPM tail instead of replaying the whole acceleration.
-                float peakStart = Mathf.Clamp(peakLoopStartSeconds, 0f,
-                    Mathf.Max(0f, engineRev.length - 0.05f));
-                revPlaybackSource.time = peakStart;
-                revPlaybackSource.Play();
-            }
+            if (revPlaybackSource.isPlaying)
+                revPlaybackSource.Stop();
+            if (peakRevSource.isPlaying)
+                peakRevSource.Stop();
+        }
+        else if (engineRev != null && loopSoundsStarted &&
+                 !revPlaybackSource.isPlaying && simulatedRpm >= 0.25f)
+        {
+            // The short rising-RPM recording has finished. Sustain the engine
+            // with the separate clean high-RPM recording instead of restarting
+            // the rising clip from low RPM.
+            if (enginePeakRev != null && !peakRevSource.isPlaying)
+                peakRevSource.Play();
         }
 
         float rpmBlend = Mathf.Clamp01(simulatedRpm);
@@ -267,12 +273,16 @@ public class VehicleAudio : MonoBehaviour
         if (revPlaybackSource != null)
         {
             revPlaybackSource.volume = revVolume;
-            // Keep the peak section sounding like high RPM while stationary.
-            float playbackPitchTarget = stationary && throttle > 0.08f && simulatedRpm >= 0.95f
-                ? revPitchAtFullThrottle
-                : targetRevPitch;
             revPlaybackSource.pitch = Mathf.MoveTowards(
-                revPlaybackSource.pitch, playbackPitchTarget, pitchResponse * dt);
+                revPlaybackSource.pitch, targetRevPitch, pitchResponse * dt);
+        }
+        if (peakRevSource != null)
+        {
+            float peakTargetVolume = engineRunning && loopSoundsStarted && throttle > 0.08f && peakRevSource.isPlaying
+                ? revVolume
+                : 0f;
+            peakRevSource.volume = Mathf.MoveTowards(peakRevSource.volume, peakTargetVolume, volumeResponse * dt);
+            peakRevSource.pitch = Mathf.MoveTowards(peakRevSource.pitch, revPitchAtFullThrottle, pitchResponse * dt);
         }
 
         if (engineRunning && loopSoundsStarted && engineRev != null)
@@ -284,8 +294,8 @@ public class VehicleAudio : MonoBehaviour
             }
             else if (!revSoundIsLoop && simulateGearShifts)
             {
-                // Start the acceleration clip on throttle press. Further restarts
-                // happen only at simulated shifts, not continuously while held.
+                // Start the rising-RPM clip on throttle press. It is not restarted
+                // when it finishes; the peak-rev loop takes over. Gear shifts restart it.
                 bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 if (throttlePressed && simulatedGear == 1)
                 {
