@@ -21,15 +21,15 @@ public class VehicleAudio : MonoBehaviour
     [Header("Rev sound")]
     [Tooltip("Enable if Engine Rev is a sustained loop. Disable if it is a short rev sound.")]
     public bool revSoundIsLoop = true;
-    [Range(0f, 1f)] public float idleVolume = 0.7f;
-    [Range(0f, 1f)] public float revVolume = 0.8f;
+    [Range(0f, 1f)] public float idleVolume = 1f;
+    [Range(0f, 1f)] public float revVolume = 1f;
     [Min(0.1f)] public float idlePitch = 0.95f;
     [Min(0.1f)] public float revPitchAtIdle = 0.9f;
     [Min(0.1f)] public float revPitchAtFullThrottle = 1.45f;
     [Min(0.1f)] public float pitchResponse = 4f;
     [Min(0.1f)] public float volumeResponse = 4f;
-    [Min(0f)] public float startDistance = 3f;
-    [Min(1f)] public float maxDistance = 35f;
+    [Min(0f)] public float startDistance = 8f;
+    [Min(1f)] public float maxDistance = 100f;
 
     private Vehicle vehicle;
     private AudioSource idleSource;
@@ -58,11 +58,12 @@ public class VehicleAudio : MonoBehaviour
         source.playOnAwake = false;
         source.clip = clip;
         source.loop = loop;
-        source.spatialBlend = 1f;
+        source.spatialBlend = 0.35f; // Keep some 3D positioning without making the engine too quiet from the chase camera.
         source.rolloffMode = AudioRolloffMode.Logarithmic;
         source.minDistance = startDistance;
         source.maxDistance = maxDistance;
         source.dopplerLevel = 0f;
+        source.priority = 64;
         return source;
     }
 
