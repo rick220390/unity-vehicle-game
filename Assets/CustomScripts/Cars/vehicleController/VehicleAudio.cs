@@ -15,6 +15,10 @@ public class VehicleAudio : MonoBehaviour
     public AudioClip engineRev;
     [Tooltip("Played once when a driver enters and starts the vehicle.")]
     public AudioClip engineStart;
+    [Tooltip("A sustained high-RPM recording. This loops after the rising-RPM clip finishes.")]
+    public AudioClip enginePeakRev;
+    [Tooltip("Played once at each simulated gear change.")]
+    public AudioClip gearChange;
     [Tooltip("Played once when the driver exits and shuts the vehicle down.")]
     public AudioClip engineShutdown;
 
