@@ -31,8 +31,8 @@ public class Vehicle : MonoBehaviour
     [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
     [Min(0f)] public float engineBrakeTorque = 0f;
-    [Tooltip("Gentle rolling resistance while coasting. Keep this low enough that gravity can roll the car down a ramp.")]
-    [Min(0f)] public float coastResistanceAcceleration = 0.35f;
+    [Tooltip("Rolling resistance while coasting. Lower values let shallow slopes accelerate the car more easily.")]
+    [Min(0f)] public float coastResistanceAcceleration = 0.12f;
     [Tooltip("Speed-proportional air resistance while coasting.")]
     [Min(0f)] public float coastAirDrag = 0.015f;
     [Min(0.1f)] public float throttleResponse = 3f;
