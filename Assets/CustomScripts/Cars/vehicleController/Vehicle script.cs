@@ -30,7 +30,11 @@ public class Vehicle : MonoBehaviour
     [Min(1f)] public float maxReverseSpeedKph = 30f;
     [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
-    [Min(0f)] public float engineBrakeTorque = 80f;
+    [Min(0f)] public float engineBrakeTorque = 0f;
+    [Tooltip("Gentle rolling resistance while coasting. Keep this low enough that gravity can roll the car down a ramp.")]
+    [Min(0f)] public float coastResistanceAcceleration = 0.35f;
+    [Tooltip("Speed-proportional air resistance while coasting.")]
+    [Min(0f)] public float coastAirDrag = 0.015f;
     [Min(0.1f)] public float throttleResponse = 3f;
     [Min(0.1f)] public float brakeResponse = 8f;
 
@@ -260,6 +264,23 @@ public class Vehicle : MonoBehaviour
         appliedSteer = Mathf.Lerp(
             appliedSteer, HasDriver ? Steer : 0f,
             1f - Mathf.Exp(-steeringResponse * dt));
+
+        // Add mild rolling resistance and aerodynamic drag while coasting.
+        // This slows the car on level ground without applying WheelCollider
+        // brake torque that can pin it in place on a slope.
+        if (Mathf.Abs(targetThrottle) < 0.05f &&
+            !(HasDriver && Handbrake) &&
+            AnyWheelGrounded())
+        {
+            Vector3 planarVelocity = Vector3.ProjectOnPlane(GetVelocity(), Vector3.up);
+            if (planarVelocity.sqrMagnitude > 0.0001f)
+            {
+                Vector3 dragAcceleration =
+                    -planarVelocity.normalized * coastResistanceAcceleration
+                    -planarVelocity * coastAirDrag;
+                rb.AddForce(dragAcceleration, ForceMode.Acceleration);
+            }
+        }
 
         float speedLimit = appliedThrottle < 0f ? maxReverseSpeedKph : maxSpeedKph;
         bool speedLimited = speedKph >= speedLimit && Mathf.Sign(appliedThrottle) == Mathf.Sign(forwardSpeed);
