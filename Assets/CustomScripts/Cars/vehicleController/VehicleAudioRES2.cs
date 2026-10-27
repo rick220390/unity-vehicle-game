@@ -1,8 +1,7 @@
 using UnityEngine;
+using SkrilStudio;
 
-namespace SkrilStudio
-{
-    /// <summary>
+/// <summary>
     /// Bridges the project's custom Vehicle physics controller to Realistic Engine Sounds 2.
     /// Attach this script to the RES2 prefab root (or a child containing RealisticEngineSound),
     /// then place that prefab somewhere under the vehicle GameObject.
@@ -153,4 +152,3 @@ namespace SkrilStudio
             res2.isReversing = false;
         }
     }
-}
