@@ -70,6 +70,7 @@ public class LightEffects : MonoBehaviour
     private struct EmissionSnapshot
     {
         public Material material;
+        public string colorProperty;
         public Color originalColor;
     }
 
@@ -407,13 +408,25 @@ public class LightEffects : MonoBehaviour
             for (int i = 0; i < materials.Length; i++)
             {
                 Material material = materials[i];
-                if (material == null || !material.HasProperty("_EmissionColor"))
+                if (material == null)
+                    continue;
+
+                // URP/Standard shaders commonly use _EmissionColor; HDRP shaders
+                // can expose the equivalent property as _EmissiveColor.
+                string colorProperty = material.HasProperty("_EmissionColor")
+                    ? "_EmissionColor"
+                    : material.HasProperty("_EmissiveColor")
+                        ? "_EmissiveColor"
+                        : null;
+
+                if (string.IsNullOrEmpty(colorProperty))
                     continue;
 
                 vehicleEmissionSnapshots.Add(new EmissionSnapshot
                 {
                     material = material,
-                    originalColor = material.GetColor("_EmissionColor")
+                    colorProperty = colorProperty,
+                    originalColor = material.GetColor(colorProperty)
                 });
             }
             renderer.sharedMaterials = materials;
@@ -439,7 +452,7 @@ public class LightEffects : MonoBehaviour
                 continue;
 
             snapshot.material.SetColor(
-                "_EmissionColor",
+                snapshot.colorProperty,
                 snapshot.originalColor * targetMultiplier);
         }
     }
