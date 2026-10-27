@@ -25,8 +25,8 @@ public class VehicleTyreEffects : MonoBehaviour
     [Min(0.1f)] public float squealMinDistance = 12f;
     [Tooltip("Distance at which the squeal becomes inaudible.")]
     [Min(1f)] public float squealMaxDistance = 100f;
-    [Tooltip("Seconds of overlap between loop repetitions to hide the loop point.")]
-    [Range(0.05f, 1f)] public float loopCrossfadeDuration = 0.35f;
+    [Tooltip("Short overlap between loop repetitions. Keep this low to avoid an echo from the two copies of the clip playing together.")]
+    [Range(0.02f, 0.25f)] public float loopCrossfadeDuration = 0.08f;
 
     [Header("Smoke")]
     [Tooltip("Optional particle systems, one per wheel, in the same order as Vehicle.wheelColliders.")]
@@ -203,7 +203,9 @@ public class VehicleTyreEffects : MonoBehaviour
         }
 
         float clipLength = tyreSquealClip.length;
-        float overlap = Mathf.Clamp(loopCrossfadeDuration, 0.05f, Mathf.Max(0.05f, clipLength * 0.45f));
+        // A long overlap makes the same tyre sound play twice and creates an obvious echo.
+        // Keep the overlap short, and never let it consume a large part of a short clip.
+        float overlap = Mathf.Clamp(loopCrossfadeDuration, 0.02f, Mathf.Max(0.02f, clipLength * 0.12f));
 
         if (!isCrossfading && clipLength > 0.1f &&
             activeLoopSource.time >= clipLength - overlap)
