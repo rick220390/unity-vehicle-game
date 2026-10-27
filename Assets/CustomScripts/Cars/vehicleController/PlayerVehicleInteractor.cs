@@ -115,9 +115,12 @@ void LateUpdate()
         maxCameraPitch
     );
 
-    // Look at a point slightly above the vehicle.
-    Vector3 pivot = current.transform.position
-                  + Vector3.up * camLookHeight;
+    // Use this vehicle's configured camera target when available. This lets
+    // different car shapes have a suitable orbit/look point. Older setups keep
+    // the previous height-above-root behaviour when no camera point is assigned.
+    Vector3 pivot = current.cameraPoint != null
+        ? current.cameraPoint.position
+        : current.transform.position + Vector3.up * camLookHeight;
 
     // Calculate the camera's orbit around the vehicle.
     Quaternion orbitRotation = Quaternion.Euler(
