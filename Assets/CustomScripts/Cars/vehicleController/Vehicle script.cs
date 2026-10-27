@@ -362,24 +362,74 @@ public class Vehicle : MonoBehaviour
         int gearCount = forwardGearRatios != null ? forwardGearRatios.Length : 0;
         if (gearCount == 0)
         {
-            EngineRpm = Mathf.MoveTowards(EngineRpm, idleRpm + throttle * (redlineRpm - idleRpm), engineRpmResponse * redlineRpm * dt);
+            EngineRpm = Mathf.MoveTowards(EngineRpm,
+                idleRpm + throttle * (redlineRpm - idleRpm),
+                engineRpmResponse * redlineRpm * dt);
             CurrentGear = 1;
             return;
         }
 
         CurrentGear = Mathf.Clamp(CurrentGear, 1, gearCount);
-        float ratio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
-        float wheelCoupledRpm = speedKph / Mathf.Max(1f, maxSpeedKph) * redlineRpm * ratio / Mathf.Max(0.1f, forwardGearRatios[0]);
-        // The clutch slips at low speed, allowing the engine to rev before the car moves.
-        float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
+        float currentRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
+        float topRatio = Mathf.Max(0.1f, forwardGearRatios[gearCount - 1]);
+
+        // Calibrate every gear against the configured vehicle top speed. This means
+        // redline in top gear occurs near maxSpeedKph, not at an arbitrary fraction
+        // of speed that can make the engine scream long before the car is fast.
+        float redlineSpeedThisGear = maxSpeedKph * topRatio / currentRatio;
+        float roadRpm = idleRpm + Mathf.Clamp01(speedKph / Mathf.Max(1f, redlineSpeedThisGear))
+            * (redlineRpm - idleRpm);
+
+        // Driven-wheel RPM lets the engine rise during wheelspin/drifts even when
+        // road speed is low. Normal rolling wheel RPM tracks roadRpm; excess wheel
+        // RPM is treated as slip, rather than forcing the engine to stay at redline.
+        float drivenWheelRpm = 0f;
+        int drivenWheelCount = 0;
+        if (wheelColliders != null)
+        {
+            for (int i = 0; i < wheelColliders.Length; i++)
+            {
+                WheelCollider wheel = wheelColliders[i];
+                if (wheel != null && ContainsIndex(drivenWheelIndexes, i))
+                {
+                    drivenWheelRpm += Mathf.Abs(wheel.rpm);
+                    drivenWheelCount++;
+                }
+            }
+        }
+
+        float wheelspinRpm = roadRpm;
+        if (drivenWheelCount > 0)
+        {
+            drivenWheelRpm /= drivenWheelCount;
+            float circumference = 2f * Mathf.PI * Mathf.Max(0.05f, wheelRadius);
+            float wheelRpmAtRedline = (redlineSpeedThisGear / 3.6f) / circumference * 60f;
+            if (wheelRpmAtRedline > 1f)
+            {
+                float wheelRpmEstimate = idleRpm
+                    + Mathf.Clamp01(drivenWheelRpm / wheelRpmAtRedline)
+                    * (redlineRpm - idleRpm);
+                wheelspinRpm = Mathf.Max(roadRpm, wheelRpmEstimate);
+            }
+        }
+
         float clutchBlend = Mathf.Clamp01(speedKph / Mathf.Max(0.1f, clutchEngagementSpeed));
-        float targetRpm = Mathf.Lerp(freeRevRpm, Mathf.Max(idleRpm, wheelCoupledRpm), clutchBlend);
+        float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
+        float targetRpm = Mathf.Lerp(freeRevRpm, roadRpm, clutchBlend);
+        // Once the clutch is engaged, wheelspin can raise RPM above road-speed RPM.
+        targetRpm = Mathf.Max(targetRpm, wheelspinRpm);
         if (shiftTimer > 0f)
             targetRpm = Mathf.Max(idleRpm, targetRpm * 0.72f);
 
-        EngineRpm = Mathf.Clamp(Mathf.MoveTowards(EngineRpm, targetRpm, engineRpmResponse * redlineRpm * dt), idleRpm, redlineRpm);
+        EngineRpm = Mathf.Clamp(
+            Mathf.MoveTowards(EngineRpm, targetRpm, engineRpmResponse * redlineRpm * dt),
+            idleRpm, redlineRpm);
 
-        if (!HasDriver || Handbrake || throttle < 0.15f || shiftCooldown > 0f || shiftTimer > 0f)
+        // Preserve a stationary handbrake burnout in first gear, but do not disable
+        // automatic shifting during a moving handbrake turn or drift.
+        bool stationaryHandbrakeBurnout = Handbrake && speedKph < 5f;
+        if (!HasDriver || throttle < 0.10f || stationaryHandbrakeBurnout ||
+            shiftCooldown > 0f || shiftTimer > 0f)
             return;
 
         if (EngineRpm >= upshiftRpm && CurrentGear < gearCount)
