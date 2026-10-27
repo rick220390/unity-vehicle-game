@@ -63,6 +63,16 @@ public class LightEffects : MonoBehaviour
         public float spotAngle;
     }
 
+    [Header("Parked Vehicle Emission")]
+    [Tooltip("Emission multiplier used only while the car is unoccupied and all exterior lights are off. Lower values make parked lamp/body materials glow less at night.")]
+    [Range(0f, 1f)] public float unoccupiedEmissionMultiplier = 0.05f;
+
+    private struct EmissionSnapshot
+    {
+        public Material material;
+        public Color originalColor;
+    }
+
     private Vehicle vehicle;
     private LightingMode lightingMode = LightingMode.Off;
     private Light[] detectedBrakeLights;
@@ -71,10 +81,12 @@ public class LightEffects : MonoBehaviour
     private LightSnapshot[] brakeLightDefaults;
     private bool hasSeparateMainBeam;
     private bool brakeLightsActive;
+    private float appliedEmissionMultiplier = -1f;
 
     private readonly List<Material> frontEmissionInstances = new List<Material>();
     private readonly List<Material> tailEmissionInstances = new List<Material>();
     private readonly List<Material> brakeEmissionInstances = new List<Material>();
+    private readonly List<EmissionSnapshot> vehicleEmissionSnapshots = new List<EmissionSnapshot>();
 
     private void Awake()
     {
@@ -100,14 +112,15 @@ public class LightEffects : MonoBehaviour
         brakeLightDefaults = CaptureLights(detectedBrakeLights);
         hasSeparateMainBeam = mainBeamLights != null && mainBeamLights.Length > 0;
 
-        CacheEmissionMaterials(FL, FLM, frontEmissionInstances, false);
-        CacheEmissionMaterials(TL, TLM, tailEmissionInstances, false);
-        CacheOptionalBrakeMaterials();
+        // Cache per-renderer material instances and their original emission so
+        // parked cars can be dimmed without modifying shared project materials.
+        CacheVehicleEmissionMaterials();
 
         // Start with exterior lamps off, but never rely on deactivating a shared
         // object elsewhere in the scene; all searches are limited to this vehicle.
         ApplyLightingMode();
         ApplyBrakeLights(false);
+        UpdateUnoccupiedEmissionDimming();
     }
 
     private void Update()
@@ -124,6 +137,8 @@ public class LightEffects : MonoBehaviour
         bool shouldBrake = vehicle != null && vehicle.HasDriver && vehicle.IsBraking;
         if (shouldBrake != brakeLightsActive)
             ApplyBrakeLights(shouldBrake);
+
+        UpdateUnoccupiedEmissionDimming();
     }
 
     private void CacheHeadlights()
@@ -293,8 +308,8 @@ public class LightEffects : MonoBehaviour
             mainBeamOn && !hasSeparateMainBeam);
         ApplyHeadlightSnapshots(mainBeamDefaults, mainBeamOn, false);
 
-        SetEmission(frontEmissionInstances, lightsOn);
-        SetEmission(tailEmissionInstances, lightsOn);
+        // The light groups themselves control visible lamps. Emission intensity
+        // is handled separately so parked vehicles can retain a faint glow.
     }
 
     private void ApplyHeadlightSnapshots(
@@ -341,7 +356,8 @@ public class LightEffects : MonoBehaviour
             }
         }
 
-        SetEmission(brakeEmissionInstances, active);
+        // Brake lamp meshes/lights follow the brake group; emission dimming is
+        // managed globally for this vehicle below.
     }
 
     private Transform FindDescendant(string targetName)
@@ -375,6 +391,57 @@ public class LightEffects : MonoBehaviour
         }
 
         return null;
+    }
+
+    private void CacheVehicleEmissionMaterials()
+    {
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer == null)
+                continue;
+
+            // Renderer.materials gives this renderer its own material instances,
+            // avoiding changes to shared assets or other cars using the same model.
+            Material[] materials = renderer.materials;
+            for (int i = 0; i < materials.Length; i++)
+            {
+                Material material = materials[i];
+                if (material == null || !material.HasProperty("_EmissionColor"))
+                    continue;
+
+                vehicleEmissionSnapshots.Add(new EmissionSnapshot
+                {
+                    material = material,
+                    originalColor = material.GetColor("_EmissionColor")
+                });
+            }
+            renderer.sharedMaterials = materials;
+        }
+    }
+
+    private void UpdateUnoccupiedEmissionDimming()
+    {
+        bool dimForParking = lightingMode == LightingMode.Off &&
+                             (vehicle == null || !vehicle.HasDriver);
+        float targetMultiplier = dimForParking
+            ? Mathf.Clamp01(unoccupiedEmissionMultiplier)
+            : 1f;
+
+        if (Mathf.Approximately(appliedEmissionMultiplier, targetMultiplier))
+            return;
+
+        appliedEmissionMultiplier = targetMultiplier;
+
+        foreach (EmissionSnapshot snapshot in vehicleEmissionSnapshots)
+        {
+            if (snapshot.material == null)
+                continue;
+
+            snapshot.material.SetColor(
+                "_EmissionColor",
+                snapshot.originalColor * targetMultiplier);
+        }
     }
 
     private void CacheEmissionMaterials(
@@ -484,6 +551,13 @@ public class LightEffects : MonoBehaviour
         DestroyMaterialInstances(frontEmissionInstances);
         DestroyMaterialInstances(tailEmissionInstances);
         DestroyMaterialInstances(brakeEmissionInstances);
+
+        foreach (EmissionSnapshot snapshot in vehicleEmissionSnapshots)
+        {
+            if (snapshot.material != null)
+                Destroy(snapshot.material);
+        }
+        vehicleEmissionSnapshots.Clear();
     }
 
     private static void DestroyMaterialInstances(List<Material> materials)
