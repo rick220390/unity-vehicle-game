@@ -14,14 +14,8 @@ public class VehicleTyreEffects : MonoBehaviour
     public AudioClip tyreSquealClip;
     [Range(0f, 1f)] public float maximumSquealVolume = 1f;
     [Range(0.5f, 2f)] public float squealPitch = 1f;
-    [Tooltip("Fade-in speed; high values make tyre squeal reach full volume almost immediately.")]
-    [Min(0.01f)] public float squealFadeSpeed = 30f;
-    [Tooltip("How quickly the sound cuts out once the wheels stop skidding. Higher values stop the sound faster.")]
-    [Min(1f)] public float squealFadeOutSpeed = 50f;
-    [Tooltip("Combined slip needed before tyre squeal begins.")]
-    [Min(0.01f)] public float squealStartSlip = 0.08f;
-    [Tooltip("Slip amount at which the squeal reaches full volume.")]
-    [Min(0.02f)] public float squealFullSlip = 0.20f;
+    [Tooltip("Absolute wheel slip needed to trigger full-volume squeal. Lower this if skids are not triggering.")]
+    [Min(0.001f)] public float squealStartSlip = 0.015f;
     [Tooltip("Keep this low for consistent volume from the camera and vehicle.")]
     [Range(0f, 1f)] public float squealSpatialBlend = 0.1f;
     [Tooltip("Distance at which the squeal is heard at full volume.")]
@@ -100,11 +94,9 @@ public class VehicleTyreEffects : MonoBehaviour
 
             if (grounded)
             {
-                // Sideways slip captures cornering/drifting; forward slip captures
-                // wheelspin and braking lock. Use the strongest wheel's slip for audio
-                // so non-slipping wheels do not dilute the sound of a skid.
-                slip = Mathf.Sqrt(hit.sidewaysSlip * hit.sidewaysSlip +
-                                  hit.forwardSlip * hit.forwardSlip);
+                // Use the larger absolute slip value. This catches sideways drifts,
+                // wheelspin and braking lock without making the trigger harder to reach.
+                slip = Mathf.Max(Mathf.Abs(hit.sidewaysSlip), Mathf.Abs(hit.forwardSlip));
                 maximumWheelSlip = Mathf.Max(maximumWheelSlip, slip);
             }
 
@@ -154,45 +146,26 @@ public class VehicleTyreEffects : MonoBehaviour
 
     private void FadeSqueal(float slip)
     {
-        float targetVolume = 0f;
-        if (tyreSquealClip != null && slip >= squealStartSlip)
-        {
-            // Treat any real skid as a strong, immediately audible squeal instead of
-            // slowly ramping volume with slip magnitude. Slip only triggers the sound.
-            targetVolume = maximumSquealVolume;
-        }
-
-        // Fade in smoothly, but cut away much faster when slip drops below the threshold.
-        // This avoids the tyre sound lingering after the vehicle has stopped skidding.
-        float fadeSpeed = targetVolume > currentSquealVolume
-            ? squealFadeSpeed
-            : squealFadeOutSpeed;
-
-        currentSquealVolume = Mathf.MoveTowards(
-            currentSquealVolume,
-            targetVolume,
-            fadeSpeed * Time.deltaTime);
-
         if (squealSource == null)
             return;
 
         ConfigureSquealSource(squealSource);
 
-        if (tyreSquealClip == null || currentSquealVolume <= 0.02f)
+        // Keep the squeal at the Inspector's selected volume for the whole skid.
+        // Do not gradually ramp the sound up or leave it fading after grip returns.
+        bool isSkidding = tyreSquealClip != null && slip >= squealStartSlip;
+        currentSquealVolume = isSkidding ? maximumSquealVolume : 0f;
+        squealSource.volume = currentSquealVolume;
+
+        if (!isSkidding)
         {
             if (squealSource.isPlaying)
                 squealSource.Stop();
-
-            squealSource.volume = 0f;
-            currentSquealVolume = 0f;
             return;
         }
 
-        // One looping source prevents echo and phase issues from crossfading two copies.
         if (!squealSource.isPlaying)
             squealSource.Play();
-
-        squealSource.volume = currentSquealVolume;
     }
 
     private void ConfigureSquealSource(AudioSource source)
