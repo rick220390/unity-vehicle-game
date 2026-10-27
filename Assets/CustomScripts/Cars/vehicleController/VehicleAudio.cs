@@ -72,6 +72,10 @@ public class VehicleAudio : MonoBehaviour
     public bool useGranularEngineSynthesis = false;
     [Tooltip("Use a clean, continuous recording that rises from engine idle to high RPM. Prefer several seconds without gear shifts, tyres, wind, or background noise.")]
     public AudioClip granularEngineRecording;
+    [Tooltip("Start time in the source recording. Use the beginning of the engine idle.")]
+    [Min(0f)] public float granularRecordingStartSeconds = 0f;
+    [Tooltip("End time in the source recording. Stop before the throttle is released or the engine RPM falls. Set 0 to use the end of the clip.")]
+    [Min(0f)] public float granularRecordingEndSeconds = 9.5f;
     [Tooltip("Length of each audio grain. Start around 120 ms and tune by listening.")]
     [Range(60f, 240f)] public float granularGrainLengthMs = 120f;
     [Tooltip("Variation in source position around the section selected for current RPM. 0.02 means about 2% of the recording length either side.")]
@@ -97,6 +101,9 @@ public class VehicleAudio : MonoBehaviour
     private float[] granularWindow;
     private int granularRecordingChannels;
     private int granularRecordingFrames;
+    private int granularSourceStartFrame;
+    private int granularSourceEndFrame;
+    private int granularSourceFrameCount;
     private int granularGrainFrames;
     private int granularHopFrames;
     private volatile float granularRpmFraction;
@@ -702,11 +709,33 @@ public class VehicleAudio : MonoBehaviour
             return;
         }
 
+        granularSourceStartFrame = Mathf.Clamp(
+            Mathf.RoundToInt(granularRecordingStartSeconds * granularEngineRecording.frequency),
+            0,
+            granularRecordingFrames - 1);
+
+        float requestedEndSeconds = granularRecordingEndSeconds <= 0f
+            ? granularEngineRecording.length
+            : Mathf.Min(granularRecordingEndSeconds, granularEngineRecording.length);
+
+        granularSourceEndFrame = Mathf.Clamp(
+            Mathf.RoundToInt(requestedEndSeconds * granularEngineRecording.frequency),
+            granularSourceStartFrame + 1,
+            granularRecordingFrames);
+
+        granularSourceFrameCount = granularSourceEndFrame - granularSourceStartFrame;
+        if (granularSourceFrameCount < 128)
+        {
+            Debug.LogWarning($"{name}: The selected granular recording region is too short. Increase Granular Recording End Seconds. Using the existing VehicleAudio system.", this);
+            granularRecordingSamples = null;
+            return;
+        }
+
         granularGrainFrames = Mathf.Clamp(
             Mathf.RoundToInt(granularEngineRecording.frequency * granularGrainLengthMs / 1000f),
             64,
-            Mathf.Max(64, granularRecordingFrames / 2));
-        granularGrainFrames = Mathf.Min(granularGrainFrames, granularRecordingFrames - 1);
+            Mathf.Max(64, granularSourceFrameCount / 2));
+        granularGrainFrames = Mathf.Min(granularGrainFrames, granularSourceFrameCount - 1);
         granularHopFrames = Mathf.Max(1, granularGrainFrames / 2);
 
         granularWindow = new float[granularGrainFrames];
@@ -816,14 +845,17 @@ public class VehicleAudio : MonoBehaviour
     private GranularGrain CreateGranularGrain(int startingPhase)
     {
         float rpm = granularRpmFraction;
-        int maxStart = Mathf.Max(0, granularRecordingFrames - granularGrainFrames);
-        float centre = rpm * maxStart;
+        int maxStartOffset = Mathf.Max(0, granularSourceFrameCount - granularGrainFrames);
+        float centreOffset = rpm * maxStartOffset;
         int jitterRange = Mathf.RoundToInt(
-            granularSourcePositionJitter * granularRecordingFrames);
+            granularSourcePositionJitter * granularSourceFrameCount);
         int jitter = jitterRange > 0
             ? Mathf.RoundToInt((NextGranularRandom() * 2f - 1f) * jitterRange)
             : 0;
-        int start = Mathf.Clamp(Mathf.RoundToInt(centre) + jitter, 0, maxStart);
+        int start = granularSourceStartFrame + Mathf.Clamp(
+            Mathf.RoundToInt(centreOffset) + jitter,
+            0,
+            maxStartOffset);
 
         return new GranularGrain
         {
