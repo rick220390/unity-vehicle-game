@@ -15,6 +15,8 @@ public class VehicleTyreEffects : MonoBehaviour
     [Range(0f, 1f)] public float maximumSquealVolume = 1f;
     [Range(0.5f, 2f)] public float squealPitch = 1f;
     [Min(0.01f)] public float squealFadeSpeed = 8f;
+    [Tooltip("How quickly the sound cuts out once the wheels stop skidding. Higher values stop the sound faster.")]
+    [Min(1f)] public float squealFadeOutSpeed = 30f;
     [Tooltip("Combined slip needed before tyre squeal begins.")]
     [Min(0.01f)] public float squealStartSlip = 0.10f;
     [Tooltip("Slip amount at which the squeal reaches full volume.")]
@@ -162,22 +164,29 @@ public class VehicleTyreEffects : MonoBehaviour
             targetVolume = Mathf.Clamp01(intensity) * maximumSquealVolume;
         }
 
+        // Fade in smoothly, but cut away much faster when slip drops below the threshold.
+        // This avoids the tyre sound lingering after the vehicle has stopped skidding.
+        float fadeSpeed = targetVolume > currentSquealVolume
+            ? squealFadeSpeed
+            : squealFadeOutSpeed;
+
         currentSquealVolume = Mathf.MoveTowards(
             currentSquealVolume,
             targetVolume,
-            squealFadeSpeed * Time.deltaTime);
+            fadeSpeed * Time.deltaTime);
 
         if (squealSource == null)
             return;
 
         ConfigureSquealSource(squealSource);
 
-        if (tyreSquealClip == null || currentSquealVolume <= 0.005f)
+        if (tyreSquealClip == null || currentSquealVolume <= 0.02f)
         {
             if (squealSource.isPlaying)
                 squealSource.Stop();
 
             squealSource.volume = 0f;
+            currentSquealVolume = 0f;
             return;
         }
 
