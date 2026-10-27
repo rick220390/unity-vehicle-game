@@ -41,9 +41,15 @@ public class VehicleAudioRES2 : MonoBehaviour
     [Min(2f)]
     public float engineAudioMaxDistance = 150f;
 
-    [Tooltip("How often to reapply distance settings in case RES2 creates or replaces AudioSources at runtime.")]
+    [Tooltip("How often to reapply audio-source settings in case RES2 creates or replaces AudioSources at runtime.")]
     [Range(0.1f, 3f)]
     public float audioDistanceRefreshSeconds = 0.5f;
+
+    [Tooltip("Ensure RES2 audio sources can be heard through Unity Audio Reverb Zones. Set to 0 to disable reverb-zone send; 1 is the normal full send.")]
+    public bool configureReverbZoneMix = true;
+
+    [Range(0f, 1.1f)]
+    public float engineAudioReverbZoneMix = 1f;
 
     private static readonly BindingFlags MemberFlags =
         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -327,7 +333,7 @@ public class VehicleAudioRES2 : MonoBehaviour
 
     private void MaintainEngineAudioDistance()
     {
-        if (!stabilizeChaseCameraVolume || res2PrefabRoot == null)
+        if (res2PrefabRoot == null)
             return;
 
         if (Time.unscaledTime < nextAudioDistanceRefresh)
@@ -347,8 +353,17 @@ public class VehicleAudioRES2 : MonoBehaviour
 
             // Change only distance attenuation; keep RES2's clips, mixer routing,
             // volumes, pitch curves and spatial blend settings intact.
-            source.minDistance = minDistance;
-            source.maxDistance = maxDistance;
+            if (stabilizeChaseCameraVolume)
+            {
+                source.minDistance = minDistance;
+                source.maxDistance = maxDistance;
+            }
+
+            // Unity Reverb Zones only affect sources that send signal to the zone.
+            // Some RES2 presets override source settings during runtime, so reapply
+            // this alongside distance settings rather than assume a prefab default.
+            if (configureReverbZoneMix)
+                source.reverbZoneMix = Mathf.Clamp(engineAudioReverbZoneMix, 0f, 1.1f);
         }
     }
 
