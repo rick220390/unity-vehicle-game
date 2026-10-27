@@ -38,6 +38,7 @@ private float cameraPitch = 15f;
 private Vehicle current;
 private vThirdPersonCamera invectorCam;
 private Transform originalParent;
+private Vector3 originalLocalScale;
 private Rigidbody rb;
 
 private readonly List<Collider> hiddenColliders = new List<Collider>();
@@ -203,6 +204,7 @@ void Enter(Vehicle v)
     cameraPitch = 15f;
 
     originalParent = transform.parent;
+    originalLocalScale = transform.localScale;
 
     // Disable Invector character movement while driving.
     foreach (MonoBehaviour m in disableWhileDriving)
@@ -249,6 +251,9 @@ void TryExit()
 
     transform.SetParent(originalParent, true);
     transform.SetPositionAndRotation(pos, rot);
+    // Reparenting under a scaled seat can alter the player's local scale.
+    // Restore the exact scale captured before entering the vehicle.
+    transform.localScale = originalLocalScale;
 
     SetPlayerVisible(true);
     SetPlayerPhysics(true);
