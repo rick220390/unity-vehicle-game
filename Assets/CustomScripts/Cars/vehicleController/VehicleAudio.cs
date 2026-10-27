@@ -30,7 +30,7 @@ public class VehicleAudio : MonoBehaviour
     [Range(0f, 1f)] public float idleVolume = 1f;
     [Range(0f, 1f)] public float revVolume = 1f;
     [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
-    [Range(0f, 1f)] public float decelerationVolume = 1f;
+    [Range(0f, 1f)] public float decelerationVolume = 0.65f;
     [Tooltip("How much the idle sound is reduced while the deceleration clip plays.")]
     [Range(0f, 1f)] public float idleVolumeDuringDeceleration = 0.2f;
     [Min(0.1f)] public float idlePitch = 0.95f;
@@ -70,6 +70,7 @@ public class VehicleAudio : MonoBehaviour
     private bool revRampStarted;
     private float simulatedRpm;
     private float timeSinceLastGearShift = 100f;
+    private float peakRevElapsed;
     private int simulatedGear = 1;
 
     private void Awake()
@@ -170,6 +171,7 @@ public class VehicleAudio : MonoBehaviour
         simulatedRpm = 0f;
         simulatedGear = 1;
         timeSinceLastGearShift = 100f;
+        peakRevElapsed = 0f;
         throttleWasApplied = false;
         revRampStarted = false;
         idleSource.volume = 0f;
@@ -232,9 +234,13 @@ public class VehicleAudio : MonoBehaviour
             ? Mathf.Clamp01(speedKph / vehicle.maxSpeedKph)
             : 0f;
 
-        // Add a minimum interval between shifts so RPM cannot trigger several
-        // gear changes in quick succession while the accelerator is held.
+        // Track elapsed time since the peak sound started. AudioSource.time is
+        // unreliable for a looping clip because it wraps back to zero.
         timeSinceLastGearShift += dt;
+        if (peakRevSource != null && peakRevSource.isPlaying && throttle > 0.08f)
+            peakRevElapsed += dt;
+        else if (peakRevSource == null || !peakRevSource.isPlaying)
+            peakRevElapsed = 0f;
 
         // Approximate engine RPM: throttle raises RPM, while releasing the
         // accelerator lets RPM fall. A gear change drops RPM and restarts the
@@ -244,18 +250,20 @@ public class VehicleAudio : MonoBehaviour
             simulatedRpm = Mathf.MoveTowards(
                 simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
 
-            // Do not shift while the rising-RPM recording is still playing.
-            // Let the high-RPM loop run for the configured interval first, so
-            // every gear has a clear pull-up and a sustained peak before shifting.
+            // Finish the rising-RPM recording, then hold peak revs briefly before
+            // shifting. Clamp the wait so inspector values from older tuning do
+            // not make the gearbox feel stuck in one gear.
+            float peakHoldSeconds = Mathf.Clamp(gearShiftIntervalSeconds, 0.75f, 1.4f);
             if (simulateGearShifts && !revSoundIsLoop && !stationary &&
                 simulatedRpm >= shiftRpm &&
                 peakRevSource != null && peakRevSource.isPlaying &&
-                peakRevSource.time >= gearShiftIntervalSeconds &&
+                peakRevElapsed >= peakHoldSeconds &&
                 simulatedGear < Mathf.Max(2, simulatedGears))
             {
                 simulatedGear++;
                 simulatedRpm = rpmAfterShift;
                 timeSinceLastGearShift = 0f;
+                peakRevElapsed = 0f;
 
                 if (engineRev != null && loopSoundsStarted)
                 {
@@ -283,6 +291,7 @@ public class VehicleAudio : MonoBehaviour
                 revPlaybackSource.Stop();
             if (peakRevSource.isPlaying)
                 peakRevSource.Stop();
+            peakRevElapsed = 0f;
             revRampStarted = false;
         }
         else if (engineRev != null && revRampStarted && loopSoundsStarted &&
@@ -292,7 +301,10 @@ public class VehicleAudio : MonoBehaviour
             // with the separate clean high-RPM recording instead of restarting
             // the rising clip from low RPM.
             if (enginePeakRev != null && !peakRevSource.isPlaying)
+            {
+                peakRevElapsed = 0f;
                 peakRevSource.Play();
+            }
         }
 
         float rpmBlend = Mathf.Clamp01(simulatedRpm);
@@ -307,7 +319,9 @@ public class VehicleAudio : MonoBehaviour
         // Let the deceleration recording stand out instead of being masked by idle audio.
         if (decelerationSource != null)
         {
-            decelerationSource.volume = decelerationVolume;
+            // The recorded deceleration transient is naturally prominent; keep
+            // the inspector slider useful without letting it overpower the engine.
+            decelerationSource.volume = decelerationVolume * 0.55f;
             if (decelerationSource.isPlaying)
                 targetIdleVolume *= idleVolumeDuringDeceleration;
         }
