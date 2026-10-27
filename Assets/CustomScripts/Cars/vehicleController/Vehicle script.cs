@@ -8,6 +8,7 @@ public class Vehicle : MonoBehaviour
 
     [Header("Vehicle points")]
     public Transform seatPoint;
+    [Tooltip("Optional target for the driving camera to orbit around and look at. If empty, the camera uses its default height above the vehicle root.")]
     public Transform cameraPoint;
     public Transform[] exitPoints;
 
