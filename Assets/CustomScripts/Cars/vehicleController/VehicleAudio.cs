@@ -377,7 +377,7 @@ public class VehicleAudio : MonoBehaviour
                 // high RPM, the peak recording fills the gap until the next
                 // simulated shift, including wheelspin where road speed is low.
                 // In top gear it remains the sound at maximum road speed.
-                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= shiftRpm;
+                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= 0.96f;
                 bool stationaryBurnout = stationary && vehicle != null &&
                                          vehicle.Handbrake && throttle >= 0.9f;
                 bool atTopSpeedInTopGear =
@@ -396,7 +396,7 @@ public class VehicleAudio : MonoBehaviour
         // If the rev sweep finished before the car reached top speed, start
         // the peak loop as soon as the correct condition becomes true.
         bool highRpmLimiterActive = !revSoundIsLoop && simulateGearShifts &&
-                                    throttle >= 0.8f && simulatedRpm >= shiftRpm;
+                                    throttle >= 0.8f && simulatedRpm >= 0.96f;
         bool allowPeakRev = highRpmLimiterActive ||
                             (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
                             (simulatedGear >= Mathf.Max(2, simulatedGears) &&
