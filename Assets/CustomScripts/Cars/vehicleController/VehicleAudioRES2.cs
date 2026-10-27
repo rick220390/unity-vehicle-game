@@ -72,7 +72,12 @@ namespace SkrilStudio
 
             // The Vehicle controller stores speed in metres per second; RES2 expects
             // a speed value in km/h for this setup.
-            res2.engineCurrentRPM = Mathf.Clamp(vehicle.EngineRpm, 0f, redline);
+            // This prototype considers the engine off while nobody is driving.
+            // Sending 0 RPM avoids the existing Vehicle model's idle-RPM fallback
+            // making a parked, unoccupied car sound as though its engine is running.
+            res2.engineCurrentRPM = vehicle.HasDriver
+                ? Mathf.Clamp(vehicle.EngineRpm, 0f, redline)
+                : 0f;
             res2.maxRPMLimit = redline;
             res2.carCurrentSpeed = vehicle.Speed * 3.6f;
             res2.carMaxSpeed = Mathf.Max(1f, vehicle.maxSpeedKph);
