@@ -134,8 +134,13 @@ void LateUpdate()
         0f
     );
 
+    // Bring the default orbit closer to the vehicle while preserving the
+    // Inspector value as the tuning control. The 0.75 multiplier also affects
+    // already-configured scenes whose serialized camDistance is still 6.
+    float effectiveCamDistance = Mathf.Max(1f, camDistance * 0.75f);
+
     Vector3 desiredPos = orbitPivot
-                       - orbitRotation * Vector3.forward * camDistance
+                       - orbitRotation * Vector3.forward * effectiveCamDistance
                        + Vector3.up * (camHeight - camLookHeight);
 
     // Smooth the camera's movement.
