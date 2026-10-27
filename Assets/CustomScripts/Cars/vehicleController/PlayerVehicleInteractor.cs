@@ -174,11 +174,9 @@ Vehicle FindNearbyVehicle()
         if (v == null || v.HasDriver)
             continue;
 
-        Vector3 p = v.BodyCollider != null
-            ? v.BodyCollider.ClosestPoint(transform.position)
-            : v.transform.position;
-
-        float d = Vector3.Distance(p, transform.position);
+        // Measure from the nearest physical collider, not just the root pivot.
+        // This also supports imported vehicles whose colliders are on child objects.
+        float d = v.DistanceToPoint(transform.position);
 
         if (d < bestDist)
         {
