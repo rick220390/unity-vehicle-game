@@ -255,6 +255,12 @@ public class VehicleAudioRES2 : MonoBehaviour
         WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
     }
 
+    // Convenience overload for lifecycle/static writes that don't need inspector detail rows.
+    private bool WriteMember(string memberName, object value)
+    {
+        return WriteMember(memberName, value, new List<string>());
+    }
+
     private bool WriteMember(string memberName, object value, List<string> writeDetails)
     {
         if (res2Component == null)
