@@ -14,13 +14,14 @@ public class VehicleTyreEffects : MonoBehaviour
     public AudioClip tyreSquealClip;
     [Range(0f, 1f)] public float maximumSquealVolume = 1f;
     [Range(0.5f, 2f)] public float squealPitch = 1f;
-    [Min(0.01f)] public float squealFadeSpeed = 8f;
+    [Tooltip("Fade-in speed; high values make tyre squeal reach full volume almost immediately.")]
+    [Min(0.01f)] public float squealFadeSpeed = 30f;
     [Tooltip("How quickly the sound cuts out once the wheels stop skidding. Higher values stop the sound faster.")]
-    [Min(1f)] public float squealFadeOutSpeed = 30f;
+    [Min(1f)] public float squealFadeOutSpeed = 50f;
     [Tooltip("Combined slip needed before tyre squeal begins.")]
-    [Min(0.01f)] public float squealStartSlip = 0.10f;
+    [Min(0.01f)] public float squealStartSlip = 0.08f;
     [Tooltip("Slip amount at which the squeal reaches full volume.")]
-    [Min(0.02f)] public float squealFullSlip = 0.35f;
+    [Min(0.02f)] public float squealFullSlip = 0.20f;
     [Tooltip("Keep this low for consistent volume from the camera and vehicle.")]
     [Range(0f, 1f)] public float squealSpatialBlend = 0.1f;
     [Tooltip("Distance at which the squeal is heard at full volume.")]
@@ -156,12 +157,9 @@ public class VehicleTyreEffects : MonoBehaviour
         float targetVolume = 0f;
         if (tyreSquealClip != null && slip >= squealStartSlip)
         {
-            // Reach useful volume sooner while retaining a gradual response to wheel slip.
-            float intensity = Mathf.InverseLerp(
-                squealStartSlip,
-                Mathf.Max(squealStartSlip + 0.01f, squealFullSlip),
-                slip);
-            targetVolume = Mathf.Clamp01(intensity) * maximumSquealVolume;
+            // Treat any real skid as a strong, immediately audible squeal instead of
+            // slowly ramping volume with slip magnitude. Slip only triggers the sound.
+            targetVolume = maximumSquealVolume;
         }
 
         // Fade in smoothly, but cut away much faster when slip drops below the threshold.
