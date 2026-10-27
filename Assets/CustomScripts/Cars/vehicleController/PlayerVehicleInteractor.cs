@@ -115,21 +115,26 @@ void LateUpdate()
         maxCameraPitch
     );
 
-    // Use this vehicle's configured camera target when available. This lets
-    // different car shapes have a suitable orbit/look point. Older setups keep
-    // the previous height-above-root behaviour when no camera point is assigned.
-    Vector3 pivot = current.cameraPoint != null
-        ? current.cameraPoint.position
-        : current.transform.position + Vector3.up * camLookHeight;
+    // Keep the camera's position relative to the vehicle root so an offset
+    // cameraPoint cannot pull the whole driving view away from the car.
+    // The configured cameraPoint is used only as the look target.
+    Vector3 orbitPivot = current.transform.position
+                       + Vector3.up * camLookHeight;
 
-    // Calculate the camera's orbit around the vehicle.
+    Vector3 lookTarget = current.cameraPoint != null
+        ? current.cameraPoint.position
+        : orbitPivot;
+
+    // Calculate the camera's orbit around the vehicle using the existing distance
+    // and height settings, preserving the framing that worked before cameraPoint
+    // was connected.
     Quaternion orbitRotation = Quaternion.Euler(
         cameraPitch,
         current.transform.eulerAngles.y + cameraYaw,
         0f
     );
 
-    Vector3 desiredPos = pivot
+    Vector3 desiredPos = orbitPivot
                        - orbitRotation * Vector3.forward * camDistance
                        + Vector3.up * (camHeight - camLookHeight);
 
@@ -148,8 +153,8 @@ void LateUpdate()
         positionBlend
     );
 
-    // Keep the camera looking at the vehicle.
-    Vector3 lookDirection = pivot - cam.transform.position;
+    // Aim at the configured camera point without changing the camera's orbit distance.
+    Vector3 lookDirection = lookTarget - cam.transform.position;
 
     if (lookDirection.sqrMagnitude > 0.001f)
     {
