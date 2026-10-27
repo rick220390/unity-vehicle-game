@@ -33,6 +33,8 @@ public class VehicleAudio : MonoBehaviour
     [Range(0f, 1f)] public float engineStartVolume = 0.35f;
     [Tooltip("Volume for the engine shutdown sound when the driver exits the vehicle.")]
     [Range(0f, 1f)] public float engineShutdownVolume = 0.35f;
+    [Tooltip("Volume for the sound played when the simulated gearbox changes gear.")]
+    [Range(0f, 1f)] public float gearChangeVolume = 0.5f;
     [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
     [Range(0f, 1f)] public float decelerationVolume = 0.45f;
     [Tooltip("How much the idle sound is reduced while the deceleration clip plays.")]
@@ -302,7 +304,7 @@ public class VehicleAudio : MonoBehaviour
                     peakRevSource.Stop();
                     RestartRevClip(revPitchAtIdle);
                     if (gearChange != null)
-                        oneShotSource.PlayOneShot(gearChange);
+                        oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
                 }
             }
         }
