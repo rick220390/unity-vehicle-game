@@ -30,7 +30,7 @@ public class VehicleAudio : MonoBehaviour
     [Range(0f, 1f)] public float idleVolume = 1f;
     [Range(0f, 1f)] public float revVolume = 1f;
     [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
-    [Range(0f, 1f)] public float decelerationVolume = 0.65f;
+    [Range(0f, 1f)] public float decelerationVolume = 0.45f;
     [Tooltip("How much the idle sound is reduced while the deceleration clip plays.")]
     [Range(0f, 1f)] public float idleVolumeDuringDeceleration = 0.2f;
     [Min(0.1f)] public float idlePitch = 0.95f;
@@ -68,6 +68,7 @@ public class VehicleAudio : MonoBehaviour
     private bool throttleWasApplied;
     // Prevent the sustained peak loop from starting before the rising-rev clip has played.
     private bool revRampStarted;
+    private float revRampElapsed;
     private float simulatedRpm;
     private float timeSinceLastGearShift = 100f;
     private float peakRevElapsed;
@@ -174,6 +175,7 @@ public class VehicleAudio : MonoBehaviour
         peakRevElapsed = 0f;
         throttleWasApplied = false;
         revRampStarted = false;
+        revRampElapsed = 0f;
         idleSource.volume = 0f;
         revSource.volume = 0f;
 
@@ -201,9 +203,12 @@ public class VehicleAudio : MonoBehaviour
         revPlaybackSource.clip = engineRev;
         revPlaybackSource.loop = false;
         revPlaybackSource.time = 0f;
-        revPlaybackSource.pitch = Mathf.Max(0.1f, startingPitch);
+        // Keep the recorded acceleration sweep at a steady playback rate so its
+        // own recorded low-to-high RPM rise is preserved.
+        revPlaybackSource.pitch = 1f;
         revPlaybackSource.volume = revVolume;
         revPlaybackSource.Play();
+        revRampElapsed = 0f;
         revRampStarted = true;
     }
 
@@ -292,18 +297,27 @@ public class VehicleAudio : MonoBehaviour
             if (peakRevSource.isPlaying)
                 peakRevSource.Stop();
             peakRevElapsed = 0f;
+            revRampElapsed = 0f;
             revRampStarted = false;
         }
-        else if (engineRev != null && revRampStarted && loopSoundsStarted &&
-                 !revPlaybackSource.isPlaying && simulatedRpm >= 0.25f)
+        else if (engineRev != null && revRampStarted && loopSoundsStarted)
         {
-            // The short rising-RPM recording has finished. Sustain the engine
-            // with the separate clean high-RPM recording instead of restarting
-            // the rising clip from low RPM.
-            if (enginePeakRev != null && !peakRevSource.isPlaying)
+            // Use the recording's actual duration as the hand-off gate. This
+            // prevents the peak clip from starting early just because Unity
+            // briefly reports the AudioSource as not playing.
+            revRampElapsed += dt;
+            float rampDuration = engineRev.length;
+            if (revRampElapsed >= rampDuration)
             {
-                peakRevElapsed = 0f;
-                peakRevSource.Play();
+                revRampStarted = false;
+                if (revPlaybackSource.isPlaying)
+                    revPlaybackSource.Stop();
+
+                if (enginePeakRev != null && !peakRevSource.isPlaying)
+                {
+                    peakRevElapsed = 0f;
+                    peakRevSource.Play();
+                }
             }
         }
 
@@ -321,7 +335,7 @@ public class VehicleAudio : MonoBehaviour
         {
             // The recorded deceleration transient is naturally prominent; keep
             // the inspector slider useful without letting it overpower the engine.
-            decelerationSource.volume = decelerationVolume * 0.55f;
+            decelerationSource.volume = decelerationVolume * 0.45f;
             if (decelerationSource.isPlaying)
                 targetIdleVolume *= idleVolumeDuringDeceleration;
         }
@@ -378,9 +392,14 @@ public class VehicleAudio : MonoBehaviour
                 // Start the rising-RPM clip on throttle press. It is not restarted
                 // when it finishes; the peak-rev loop takes over. Gear shifts restart it.
                 bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
-                if (throttlePressed && simulatedGear == 1)
+                // Every fresh throttle press must restart the acceleration sweep,
+                // even if the car is already in a higher simulated gear. Otherwise
+                // the rev/peak sources can both remain stopped until the car stops.
+                if (throttlePressed)
                 {
-                    RestartRevClip(Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, simulatedRpm));
+                    peakRevSource.Stop();
+                    peakRevElapsed = 0f;
+                    RestartRevClip(revPitchAtIdle);
                 }
 
                 throttleWasApplied = throttle > 0.12f;
