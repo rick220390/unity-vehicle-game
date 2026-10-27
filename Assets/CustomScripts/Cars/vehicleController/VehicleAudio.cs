@@ -313,7 +313,23 @@ public class VehicleAudio : MonoBehaviour
             simulatedRpm = Mathf.MoveTowards(
                 simulatedRpm, 0f, rpmFallResponse * dt);
 
-            // When slowing right down, reset the simulated gearbox for the next pull-away.
+            // Downshift as the car slows, even if the driver never lets the
+            // simulated RPM reach idle. Without this, a quick corner or drift can
+            // leave the gearbox stuck in its highest gear and prevent further shifts.
+            if (simulateGearShifts && !revSoundIsLoop &&
+                timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
+                simulatedGear > 1 &&
+                (speedFactor < 0.35f || (throttle <= 0.08f && speedFactor < 0.55f)))
+            {
+                simulatedGear--;
+                simulatedRpm = Mathf.Min(simulatedRpm, rpmAfterShift);
+                timeSinceLastGearShift = 0f;
+                peakRevElapsed = 0f;
+                if (gearChange != null && loopSoundsStarted)
+                    oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
+            }
+
+            // At a near stop, reset the simulated gearbox for the next pull-away.
             if (speedFactor < 0.08f && simulatedRpm < 0.12f)
                 simulatedGear = 1;
         }
