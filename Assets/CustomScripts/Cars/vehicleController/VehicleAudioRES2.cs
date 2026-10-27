@@ -10,6 +10,7 @@ using UnityEngine;
 /// Add it to the car root or the RES2 prefab under the car.
 /// </summary>
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(1000)]
 public class VehicleAudioRES2 : MonoBehaviour
 {
     [Header("Optional references")]
@@ -41,7 +42,9 @@ public class VehicleAudioRES2 : MonoBehaviour
     public float debugThrottle;
     public float debugSpeedKph;
     public bool debugLastRes2WriteSucceeded;
+    public float debugRes2ReadbackRPM;
     public string debugRes2Type = "Not found";
+    public string debugRes2ObjectPath = "Not found";
 
     private Rigidbody vehicleRigidbody;
     private bool warnedMissingVehicle;
@@ -78,6 +81,19 @@ public class VehicleAudioRES2 : MonoBehaviour
 
     private void Update()
     {
+        PushRuntimeValues();
+    }
+
+    // RES2 runs in LateUpdate. Reapply after its own update pass as a diagnostic
+    // safeguard: if it resets engineCurrentRPM internally, readback will expose it.
+    private void LateUpdate()
+    {
+        PushRuntimeValues();
+        debugRes2ReadbackRPM = ReadFloatMember("engineCurrentRPM");
+    }
+
+    private void PushRuntimeValues()
+    {
         if (vehicle == null || res2Component == null)
         {
             ResolveReferences();
@@ -100,6 +116,9 @@ public class VehicleAudioRES2 : MonoBehaviour
         debugSpeedKph = speedKph;
         debugRes2Type = res2Component != null
             ? res2Component.GetType().FullName
+            : "Not found";
+        debugRes2ObjectPath = res2Component != null
+            ? GetHierarchyPath(res2Component.transform)
             : "Not found";
 
         // Vehicle.Speed is metres per second; this adapter sends km/h to RES2.
@@ -140,6 +159,55 @@ public class VehicleAudioRES2 : MonoBehaviour
         writesSucceeded &= WriteMember("isReversing",
             vehicle.HasDriver && (movingBackwards || reverseRequestedAtLowSpeed));
         debugLastRes2WriteSucceeded = writesSucceeded;
+    }
+
+    private static string GetHierarchyPath(Transform current)
+    {
+        if (current == null)
+            return "Not found";
+
+        string result = current.name;
+        while (current.parent != null)
+        {
+            current = current.parent;
+            result = current.name + "/" + result;
+        }
+
+        return result;
+    }
+
+    private float ReadFloatMember(string memberName)
+    {
+        if (res2Component == null)
+            return 0f;
+
+        Type targetType = res2Component.GetType();
+        if (!memberCache.TryGetValue(memberName, out MemberInfo member))
+        {
+            member = (MemberInfo)targetType.GetField(memberName, MemberFlags);
+            if (member == null)
+                member = targetType.GetProperty(memberName, MemberFlags);
+
+            if (member != null)
+                memberCache[memberName] = member;
+        }
+
+        try
+        {
+            if (member is FieldInfo field)
+                return Convert.ToSingle(field.GetValue(res2Component));
+            if (member is PropertyInfo property && property.CanRead)
+                return Convert.ToSingle(property.GetValue(res2Component));
+        }
+        catch (Exception exception)
+        {
+            if (missingMembersLogged.Add("read-" + memberName))
+                Debug.LogWarning(
+                    name + ": Could not read RES2 member '" + memberName + "': " + exception.Message,
+                    this);
+        }
+
+        return 0f;
     }
 
     private void ResolveReferences()
