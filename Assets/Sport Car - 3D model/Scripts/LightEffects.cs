@@ -444,7 +444,11 @@ public class LightEffects : MonoBehaviour
                     ? "_EmissiveIntensity"
                     : null;
 
-                EmissionChannel channel = GetEmissionChannel(material.name);
+                // The names such as "leds-rear" may be on the GameObject, not
+                // on the Material asset itself. Match both the material and the
+                // renderer's hierarchy so imported car meshes are detected too.
+                string hierarchyNames = GetHierarchyNames(renderer.transform);
+                EmissionChannel channel = GetEmissionChannel(material.name + " " + hierarchyNames);
                 if (string.IsNullOrEmpty(colorProperty) && string.IsNullOrEmpty(intensityProperty))
                     continue;
 
@@ -529,17 +533,30 @@ public class LightEffects : MonoBehaviour
     {
         if (!string.IsNullOrEmpty(snapshot.intensityProperty))
         {
-            // These values correspond directly to the HDRP Lit Emission
-            // Intensity field shown in the material Inspector.
-            snapshot.material.SetFloat(snapshot.intensityProperty, targetIntensity);
+            // Important HDRP Lit behaviour: setting _EmissiveIntensity at runtime
+            // alone does NOT change visible emission. HDRP serializes that field
+            // in the Inspector but stores the effective emissive power in
+            // _EmissiveColor. Rescale that colour from the material's original
+            // Inspector intensity to the requested on/off intensity.
+            float sourceIntensity = snapshot.originalIntensity > 0.0001f
+                ? snapshot.originalIntensity
+                : Mathf.Max(0.0001f, referenceOnIntensity);
 
-            // Keep the original emissive tint intact when intensity is separate.
             if (!string.IsNullOrEmpty(snapshot.colorProperty))
-                snapshot.material.SetColor(snapshot.colorProperty, snapshot.originalColor);
+            {
+                float colourMultiplier = targetIntensity / sourceIntensity;
+                snapshot.material.SetColor(
+                    snapshot.colorProperty,
+                    snapshot.originalColor * colourMultiplier);
+            }
+
+            // Keep the serialized HDRP Inspector value in sync as well. The
+            // _EmissiveColor change above is what drives the visible runtime result.
+            snapshot.material.SetFloat(snapshot.intensityProperty, targetIntensity);
         }
         else if (!string.IsNullOrEmpty(snapshot.colorProperty))
         {
-            // Some shaders store the intensity in the HDR emissive colour itself.
+            // Some shaders store intensity solely in the HDR emissive colour.
             float denominator = Mathf.Max(0.0001f, referenceOnIntensity);
             float colourMultiplier = targetIntensity / denominator;
             snapshot.material.SetColor(snapshot.colorProperty,
@@ -547,12 +564,24 @@ public class LightEffects : MonoBehaviour
         }
     }
 
-    private static EmissionChannel GetEmissionChannel(string materialName)
+    private static string GetHierarchyNames(Transform current)
     {
-        if (string.IsNullOrEmpty(materialName))
+        var names = new System.Text.StringBuilder();
+        while (current != null)
+        {
+            names.Append(current.name).Append(' ');
+            current = current.parent;
+        }
+
+        return names.ToString();
+    }
+
+    private static EmissionChannel GetEmissionChannel(string names)
+    {
+        if (string.IsNullOrEmpty(names))
             return EmissionChannel.Generic;
 
-        string normalized = materialName.ToLowerInvariant()
+        string normalized = names.ToLowerInvariant()
             .Replace("_", "-")
             .Replace(" ", "-");
 
