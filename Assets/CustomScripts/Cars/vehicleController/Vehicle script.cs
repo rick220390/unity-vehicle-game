@@ -102,7 +102,51 @@ public class Vehicle : MonoBehaviour
     public float Speed => GetVelocity().magnitude;
     public Collider BodyCollider { get; private set; }
 
+    private Collider[] detectionColliders;
     private Rigidbody rb;
+
+    /// <summary>
+    /// Returns the shortest distance from a world-space point to this vehicle's
+    /// enabled physical colliders. This is more reliable than measuring only from
+    /// the root pivot, which may be far from the visible body on imported models.
+    /// </summary>
+    public float DistanceToPoint(Vector3 point)
+    {
+        float bestDistance = float.PositiveInfinity;
+
+        if (detectionColliders != null)
+        {
+            foreach (Collider candidate in detectionColliders)
+            {
+                if (candidate == null ||
+                    !candidate.enabled ||
+                    !candidate.gameObject.activeInHierarchy ||
+                    candidate.isTrigger ||
+                    candidate is WheelCollider)
+                    continue;
+
+                Vector3 closest = candidate.ClosestPoint(point);
+                float distance = Vector3.Distance(point, closest);
+                if (distance < bestDistance)
+                    bestDistance = distance;
+            }
+        }
+
+        if (!float.IsInfinity(bestDistance))
+            return bestDistance;
+
+        // Keep compatibility with vehicles that only have a root collider,
+        // including prototypes that use a trigger as their only collider.
+        if (BodyCollider != null &&
+            BodyCollider.enabled &&
+            BodyCollider.gameObject.activeInHierarchy)
+        {
+            return Vector3.Distance(point, BodyCollider.ClosestPoint(point));
+        }
+
+        // Final fallback for collider-free prototypes.
+        return Vector3.Distance(point, transform.position);
+    }
     private float appliedThrottle;
     private float appliedBrake;
     private float appliedSteer;
@@ -117,6 +161,10 @@ public class Vehicle : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         BodyCollider = GetComponent<Collider>();
+
+        // Cache colliders from the complete vehicle hierarchy once. Imported cars
+        // often keep their physical colliders on child objects instead of the root.
+        detectionColliders = GetComponentsInChildren<Collider>(true);
 
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
