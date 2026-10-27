@@ -241,12 +241,13 @@ public class VehicleAudio : MonoBehaviour
                 decelerationSource.Stop();
                 decelerationSource.clip = engineDeceleration;
                 decelerationSource.loop = false;
-                // A high-to-low recording starts at the beginning for high RPM,
-                // and later in the recording for lower RPM. Clamp away from the
-                // very end so a brief release still produces audible sound.
-                float startTime = (1f - rpmAtRelease) * engineDeceleration.length;
-                decelerationSource.time = Mathf.Clamp(startTime, 0f,
-                    Mathf.Max(0f, engineDeceleration.length - 0.08f));
+                // Always start at the beginning of the falling-RPM recording.
+                // The simulated RPM is only an approximation and can lag behind
+                // the recorded rev audio; seeking from it can jump almost to the
+                // end of the clip and make a valid throttle-release sound seem silent.
+                // First make the clip explicit, reset playback, then start it.
+                decelerationSource.clip = engineDeceleration;
+                decelerationSource.time = 0f;
                 decelerationSource.volume = decelerationVolume;
                 decelerationSource.Play();
             }
