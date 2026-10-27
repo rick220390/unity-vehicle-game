@@ -413,7 +413,6 @@ public class VehicleAudio : MonoBehaviour
             {
                 // Start the rising-RPM clip on throttle press. It is not restarted
                 // when it finishes; the peak-rev loop takes over. Gear shifts restart it.
-                bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 // Every fresh throttle press must restart the acceleration sweep,
                 // even if the car is already in a higher simulated gear. Otherwise
                 // the rev/peak sources can both remain stopped until the car stops.
