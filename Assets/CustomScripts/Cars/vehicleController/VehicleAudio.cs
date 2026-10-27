@@ -67,6 +67,22 @@ public class VehicleAudio : MonoBehaviour
     [Min(0f)] public float startDistance = 8f;
     [Min(1f)] public float maxDistance = 100f;
 
+    [Header("Granular Engine Synthesis (Experimental)")]
+    [Tooltip("Enable the optional granular engine model. When disabled, the existing engine audio behaves exactly as before.")]
+    public bool useGranularEngineSynthesis = false;
+    [Tooltip("Use a clean, continuous recording that rises from engine idle to high RPM. Prefer several seconds without gear shifts, tyres, wind, or background noise.")]
+    public AudioClip granularEngineRecording;
+    [Tooltip("Length of each audio grain. Start around 120 ms and tune by listening.")]
+    [Range(60f, 240f)] public float granularGrainLengthMs = 120f;
+    [Tooltip("Variation in source position around the section selected for current RPM. 0.02 means about 2% of the recording length either side.")]
+    [Range(0f, 0.08f)] public float granularSourcePositionJitter = 0.02f;
+    [Tooltip("Idle volume for the granular engine.")]
+    [Range(0f, 1f)] public float granularIdleVolume = 0.25f;
+    [Tooltip("Loaded/high-RPM volume for the granular engine.")]
+    [Range(0f, 1f)] public float granularLoadVolume = 0.9f;
+    [Tooltip("How quickly the granular playback volume follows engine load.")]
+    [Min(0.1f)] public float granularVolumeResponse = 5f;
+
     private Vehicle vehicle;
     private AudioSource idleSource;
     private AudioSource revSource;
@@ -74,6 +90,30 @@ public class VehicleAudio : MonoBehaviour
     private AudioSource revPlaybackSource;
     private AudioSource peakRevSource;
     private AudioSource decelerationSource;
+    private AudioSource granularSource;
+
+    private AudioClip granularStreamClip;
+    private float[] granularRecordingSamples;
+    private float[] granularWindow;
+    private int granularRecordingChannels;
+    private int granularRecordingFrames;
+    private int granularGrainFrames;
+    private int granularHopFrames;
+    private volatile float granularRpmFraction;
+    private bool granularCallbackInitialized;
+    private int granularFramesUntilSpawn;
+    private int granularNextSlot;
+    private uint granularRandomState = 0xA341316Cu;
+    private GranularGrain granularGrainA;
+    private GranularGrain granularGrainB;
+
+    private struct GranularGrain
+    {
+        public int startFrame;
+        public int phase;
+        public bool active;
+    }
+
     private bool engineRunning;
     private bool loopSoundsStarted;
     private float startDelayRemaining;
@@ -111,6 +151,8 @@ public class VehicleAudio : MonoBehaviour
 
         idleSource.volume = 0f;
         revSource.volume = 0f;
+
+        TryInitializeGranularEngine();
     }
 
     private AudioSource CreateSource(string sourceName, AudioClip clip, bool loop)
@@ -145,9 +187,12 @@ public class VehicleAudio : MonoBehaviour
             if (startDelayRemaining <= 0f)
             {
                 loopSoundsStarted = true;
-                StartLoop(idleSource);
-                if (revSoundIsLoop && !simulateGearShifts)
-                    StartLoop(revSource);
+                if (!GranularModeAvailable)
+                {
+                    StartLoop(idleSource);
+                    if (revSoundIsLoop && !simulateGearShifts)
+                        StartLoop(revSource);
+                }
             }
         }
 
@@ -166,9 +211,12 @@ public class VehicleAudio : MonoBehaviour
         if (startDelayRemaining <= 0f)
         {
             loopSoundsStarted = true;
-            StartLoop(idleSource);
-            if (revSoundIsLoop && !simulateGearShifts)
-                StartLoop(revSource);
+            if (!GranularModeAvailable)
+            {
+                StartLoop(idleSource);
+                if (revSoundIsLoop && !simulateGearShifts)
+                    StartLoop(revSource);
+            }
         }
     }
 
@@ -180,6 +228,11 @@ public class VehicleAudio : MonoBehaviour
 
         idleSource.Stop();
         revSource.Stop();
+        if (granularSource != null)
+        {
+            granularSource.Stop();
+            granularSource.volume = 0f;
+        }
         revPlaybackSource.Stop();
         revPlaybackSource.loop = false;
         revTailLooping = false;
@@ -231,8 +284,81 @@ public class VehicleAudio : MonoBehaviour
         revRampStarted = true;
     }
 
+    private bool GranularModeAvailable
+    {
+        get
+        {
+            return useGranularEngineSynthesis &&
+                   granularStreamClip != null &&
+                   granularSource != null;
+        }
+    }
+
+    private void UpdateGranularEngineSound(float dt)
+    {
+        float throttle = engineRunning && vehicle != null
+            ? Mathf.Clamp01(Mathf.Abs(vehicle.Throttle))
+            : 0f;
+
+        float rpmFraction = vehicle != null
+            ? Mathf.InverseLerp(vehicle.idleRpm, vehicle.redlineRpm, vehicle.EngineRpm)
+            : 0f;
+        granularRpmFraction = Mathf.Clamp01(rpmFraction);
+
+        if (vehicle != null)
+        {
+            bool actualShiftStarted = vehicle.IsShifting && !previousVehicleShifting;
+            if (actualShiftStarted && gearChange != null && loopSoundsStarted)
+            {
+                oneShotSource.pitch = gearChangePitch;
+                oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
+                oneShotSource.pitch = 1f;
+            }
+
+            previousVehicleShifting = vehicle.IsShifting;
+            simulatedGear = vehicle.CurrentGear;
+        }
+
+        // The granular recording follows live engine RPM, so legacy loop, rev,
+        // peak and throttle-release clips must not play on top of it.
+        idleSource.Stop();
+        revSource.Stop();
+        revPlaybackSource.Stop();
+        peakRevSource.Stop();
+        decelerationSource.Stop();
+        idleSource.volume = 0f;
+        revSource.volume = 0f;
+
+        bool shouldPlay = engineRunning && loopSoundsStarted;
+        float load = Mathf.Clamp01(throttle * 0.7f + granularRpmFraction * 0.3f);
+        float targetVolume = shouldPlay
+            ? Mathf.Lerp(granularIdleVolume, granularLoadVolume, load)
+            : 0f;
+
+        granularSource.volume = Mathf.MoveTowards(
+            granularSource.volume, targetVolume, granularVolumeResponse * dt);
+
+        if (shouldPlay)
+        {
+            if (!granularSource.isPlaying)
+                granularSource.Play();
+        }
+        else if (granularSource.isPlaying)
+        {
+            granularSource.Stop();
+        }
+
+        throttleWasApplied = engineRunning && throttle > 0.12f;
+    }
+
     private void UpdateEngineSound(float dt)
     {
+        if (GranularModeAvailable)
+        {
+            UpdateGranularEngineSound(dt);
+            return;
+        }
+
         float throttle = engineRunning && vehicle != null
             ? Mathf.Clamp01(Mathf.Abs(vehicle.Throttle))
             : 0f;
@@ -543,4 +669,181 @@ public class VehicleAudio : MonoBehaviour
         // or which audio mode is selected. This keeps throttle release reliable.
         throttleWasApplied = engineRunning && throttle > 0.12f;
     }
+    private void TryInitializeGranularEngine()
+    {
+        if (!useGranularEngineSynthesis)
+            return;
+
+        if (granularEngineRecording == null)
+        {
+            Debug.LogWarning(
+                $"{name}: Granular Engine Synthesis is enabled, but no Granular Engine Recording is assigned. Using the existing VehicleAudio system.",
+                this);
+            return;
+        }
+
+        // AudioClip.GetData needs a readable clip. Set Import Settings > Load Type
+        // to Decompress On Load for the cleanest, most reliable setup.
+        granularRecordingChannels = Mathf.Max(1, granularEngineRecording.channels);
+        granularRecordingFrames = granularEngineRecording.samples;
+        if (granularRecordingFrames < 128)
+        {
+            Debug.LogWarning($"{name}: The granular engine recording is too short. Using the existing VehicleAudio system.", this);
+            return;
+        }
+
+        granularRecordingSamples = new float[granularRecordingFrames * granularRecordingChannels];
+        if (!granularEngineRecording.GetData(granularRecordingSamples, 0))
+        {
+            granularRecordingSamples = null;
+            Debug.LogWarning(
+                $"{name}: Could not read the Granular Engine Recording. Set its Import Settings > Load Type to Decompress On Load, then reimport it. Using the existing VehicleAudio system.",
+                this);
+            return;
+        }
+
+        granularGrainFrames = Mathf.Clamp(
+            Mathf.RoundToInt(granularEngineRecording.frequency * granularGrainLengthMs / 1000f),
+            64,
+            Mathf.Max(64, granularRecordingFrames / 2));
+        granularGrainFrames = Mathf.Min(granularGrainFrames, granularRecordingFrames - 1);
+        granularHopFrames = Mathf.Max(1, granularGrainFrames / 2);
+
+        granularWindow = new float[granularGrainFrames];
+        for (int i = 0; i < granularWindow.Length; i++)
+        {
+            // Hann envelope: two grains offset by half a grain crossfade smoothly.
+            granularWindow[i] = 0.5f - 0.5f * Mathf.Cos(
+                2f * Mathf.PI * i / Mathf.Max(1, granularWindow.Length - 1));
+        }
+
+        int outputLengthFrames = granularEngineRecording.frequency * 8;
+        granularStreamClip = AudioClip.Create(
+            "Granular Engine Stream",
+            outputLengthFrames,
+            granularRecordingChannels,
+            granularEngineRecording.frequency,
+            true,
+            OnGranularAudioRead,
+            OnGranularAudioSetPosition);
+
+        granularSource = CreateSource("Granular Engine", granularStreamClip, true);
+        granularSource.loop = true;
+        granularSource.volume = 0f;
+        granularCallbackInitialized = false;
+        granularRpmFraction = 0f;
+    }
+
+    private void OnGranularAudioRead(float[] data)
+    {
+        if (granularRecordingSamples == null ||
+            granularWindow == null ||
+            granularRecordingFrames <= 0 ||
+            granularRecordingChannels <= 0)
+        {
+            System.Array.Clear(data, 0, data.Length);
+            return;
+        }
+
+        int channels = granularRecordingChannels;
+        int outputFrames = data.Length / channels;
+
+        for (int frame = 0; frame < outputFrames; frame++)
+        {
+            if (!granularCallbackInitialized)
+            {
+                granularGrainA = CreateGranularGrain(0);
+                granularGrainB = CreateGranularGrain(granularHopFrames);
+                granularNextSlot = 1;
+                granularFramesUntilSpawn = granularHopFrames;
+                granularCallbackInitialized = true;
+            }
+            else if (granularFramesUntilSpawn <= 0)
+            {
+                GranularGrain next = CreateGranularGrain(0);
+                if (granularNextSlot == 0)
+                    granularGrainA = next;
+                else
+                    granularGrainB = next;
+
+                granularNextSlot = 1 - granularNextSlot;
+                granularFramesUntilSpawn = granularHopFrames;
+            }
+
+            float weightA = 0f;
+            float weightB = 0f;
+            if (granularGrainA.active && granularGrainA.phase >= 0 &&
+                granularGrainA.phase < granularGrainFrames)
+                weightA = granularWindow[granularGrainA.phase];
+            if (granularGrainB.active && granularGrainB.phase >= 0 &&
+                granularGrainB.phase < granularGrainFrames)
+                weightB = granularWindow[granularGrainB.phase];
+
+            for (int channel = 0; channel < channels; channel++)
+            {
+                float sample = 0f;
+                if (weightA > 0f)
+                {
+                    int indexA = (granularGrainA.startFrame + granularGrainA.phase) * channels + channel;
+                    sample += granularRecordingSamples[indexA] * weightA;
+                }
+                if (weightB > 0f)
+                {
+                    int indexB = (granularGrainB.startFrame + granularGrainB.phase) * channels + channel;
+                    sample += granularRecordingSamples[indexB] * weightB;
+                }
+
+                data[frame * channels + channel] = Mathf.Clamp(sample, -1f, 1f);
+            }
+
+            if (granularGrainA.active)
+            {
+                granularGrainA.phase++;
+                if (granularGrainA.phase >= granularGrainFrames)
+                    granularGrainA.active = false;
+            }
+            if (granularGrainB.active)
+            {
+                granularGrainB.phase++;
+                if (granularGrainB.phase >= granularGrainFrames)
+                    granularGrainB.active = false;
+            }
+
+            granularFramesUntilSpawn--;
+        }
+    }
+
+    private GranularGrain CreateGranularGrain(int startingPhase)
+    {
+        float rpm = granularRpmFraction;
+        int maxStart = Mathf.Max(0, granularRecordingFrames - granularGrainFrames);
+        float centre = rpm * maxStart;
+        int jitterRange = Mathf.RoundToInt(
+            granularSourcePositionJitter * granularRecordingFrames);
+        int jitter = jitterRange > 0
+            ? Mathf.RoundToInt((NextGranularRandom() * 2f - 1f) * jitterRange)
+            : 0;
+        int start = Mathf.Clamp(Mathf.RoundToInt(centre) + jitter, 0, maxStart);
+
+        return new GranularGrain
+        {
+            startFrame = start,
+            phase = startingPhase,
+            active = startingPhase < granularGrainFrames
+        };
+    }
+
+    private float NextGranularRandom()
+    {
+        // Small deterministic PRNG; avoids allocations or UnityEngine.Random on
+        // the audio thread.
+        granularRandomState = 1664525u * granularRandomState + 1013904223u;
+        return (granularRandomState & 0x00FFFFFFu) / 16777215f;
+    }
+
+    private void OnGranularAudioSetPosition(int newPosition)
+    {
+        // Keep grain phases alive across the generated stream's loop point.
+    }
+
 }
