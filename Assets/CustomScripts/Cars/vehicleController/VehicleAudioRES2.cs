@@ -34,6 +34,15 @@ public class VehicleAudioRES2 : MonoBehaviour
     private readonly Dictionary<string, MemberInfo> memberCache = new Dictionary<string, MemberInfo>();
     private readonly HashSet<string> missingMembersLogged = new HashSet<string>();
 
+    [Header("Runtime Debug (Play Mode)")]
+    public bool debugVehicleHasDriver;
+    public float debugVehicleRPM;
+    public float debugSentRPM;
+    public float debugThrottle;
+    public float debugSpeedKph;
+    public bool debugLastRes2WriteSucceeded;
+    public string debugRes2Type = "Not found";
+
     private Rigidbody vehicleRigidbody;
     private bool warnedMissingVehicle;
     private bool warnedMissingRes2;
@@ -80,15 +89,28 @@ public class VehicleAudioRES2 : MonoBehaviour
         float rpm = vehicle.HasDriver
             ? Mathf.Clamp(vehicle.EngineRpm, 0f, redline)
             : 0f;
+        float speedKph = vehicle.Speed * 3.6f;
+
+        // Inspector-visible telemetry makes it clear whether input values are
+        // reaching this adapter before we investigate RES2's own playback settings.
+        debugVehicleHasDriver = vehicle.HasDriver;
+        debugVehicleRPM = vehicle.EngineRpm;
+        debugSentRPM = rpm;
+        debugThrottle = vehicle.Throttle;
+        debugSpeedKph = speedKph;
+        debugRes2Type = res2Component != null
+            ? res2Component.GetType().FullName
+            : "Not found";
 
         // Vehicle.Speed is metres per second; this adapter sends km/h to RES2.
-        WriteMember("engineCurrentRPM", rpm);
-        WriteMember("maxRPMLimit", redline);
-        WriteMember("carCurrentSpeed", vehicle.Speed * 3.6f);
-        WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
+        bool writesSucceeded = true;
+        writesSucceeded &= WriteMember("engineCurrentRPM", rpm);
+        writesSucceeded &= WriteMember("maxRPMLimit", redline);
+        writesSucceeded &= WriteMember("carCurrentSpeed", speedKph);
+        writesSucceeded &= WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
 
         bool shifting = vehicle.HasDriver && vehicle.IsShifting;
-        WriteMember("isShifting", shifting);
+        writesSucceeded &= WriteMember("isShifting", shifting);
 
         bool hasThrottleInput =
             Mathf.Abs(vehicle.Throttle) > Mathf.Max(0.001f, throttleDeadZone);
@@ -97,9 +119,8 @@ public class VehicleAudioRES2 : MonoBehaviour
             hasThrottleInput &&
             !shifting &&
             !vehicle.IsBraking;
-        WriteMember("gasPedalPressing", gasPedalPressed);
+        writesSucceeded &= WriteMember("gasPedalPressing", gasPedalPressed);
 
-        float speedKph = vehicle.Speed * 3.6f;
         bool movingBackwards = false;
 
         if (vehicleRigidbody != null)
@@ -116,8 +137,9 @@ public class VehicleAudioRES2 : MonoBehaviour
             vehicle.Throttle < -Mathf.Max(0.001f, throttleDeadZone) &&
             speedKph <= Mathf.Max(0f, reverseEngageSpeedKph);
 
-        WriteMember("isReversing",
+        writesSucceeded &= WriteMember("isReversing",
             vehicle.HasDriver && (movingBackwards || reverseRequestedAtLowSpeed));
+        debugLastRes2WriteSucceeded = writesSucceeded;
     }
 
     private void ResolveReferences()
@@ -157,10 +179,10 @@ public class VehicleAudioRES2 : MonoBehaviour
         WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
     }
 
-    private void WriteMember(string memberName, object value)
+    private bool WriteMember(string memberName, object value)
     {
         if (res2Component == null)
-            return;
+            return false;
 
         Type targetType = res2Component.GetType();
         if (!memberCache.TryGetValue(memberName, out MemberInfo member))
@@ -178,13 +200,13 @@ public class VehicleAudioRES2 : MonoBehaviour
             if (member is FieldInfo field)
             {
                 field.SetValue(res2Component, value);
-                return;
+                return true;
             }
 
             if (member is PropertyInfo property && property.CanWrite)
             {
                 property.SetValue(res2Component, value);
-                return;
+                return true;
             }
         }
         catch (Exception exception)
@@ -193,7 +215,7 @@ public class VehicleAudioRES2 : MonoBehaviour
                 Debug.LogWarning(
                     name + ": Could not set RES2 member '" + memberName + "': " + exception.Message,
                     this);
-            return;
+            return false;
         }
 
         if (missingMembersLogged.Add(memberName))
@@ -203,6 +225,8 @@ public class VehicleAudioRES2 : MonoBehaviour
                 memberName + "' field/property. Check that the correct RES2 component is assigned.",
                 this);
         }
+
+        return false;
     }
 
     private void OnDisable()
