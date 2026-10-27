@@ -29,6 +29,14 @@ public float camLookHeight = 1.2f;
 public float camPositionSmooth = 6f;
 public float camRotationSmooth = 5f;
 
+[Header("Camera Collision")]
+[Tooltip("Radius used to keep the driving camera away from walls and other obstacles.")]
+[Min(0.05f)] public float cameraCollisionRadius = 0.2f;
+[Tooltip("Extra space maintained between the camera and an obstacle.")]
+[Min(0f)] public float cameraCollisionPadding = 0.12f;
+[Tooltip("Layers that can obstruct the driving camera.")]
+public LayerMask cameraCollisionMask = ~0;
+
 [Header("Mouse Orbit")]
 public float mouseSensitivity = 3f;
 public float minCameraPitch = -10f;
@@ -49,6 +57,7 @@ private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
 private Vehicle nearby;
 private string message;
 private float messageTimer;
+private readonly RaycastHit[] cameraCastHits = new RaycastHit[32];
 
 void Awake()
 {
@@ -143,19 +152,80 @@ void LateUpdate()
                        - orbitRotation * Vector3.forward * effectiveCamDistance
                        + Vector3.up * (camHeight - camLookHeight);
 
-    // Smooth the camera's movement.
-    float positionBlend = 1f - Mathf.Exp(
-        -camPositionSmooth * Time.deltaTime
-    );
+    // Prevent the camera from passing through walls, buildings, or nearby
+    // props. Ignore colliders belonging to this car and the player itself.
+    Vector3 cameraTargetPosition = desiredPos;
+    Vector3 castVector = desiredPos - orbitPivot;
+    float castDistance = castVector.magnitude;
+    bool cameraBlocked = false;
+
+    if (castDistance > 0.001f)
+    {
+        Vector3 castDirection = castVector / castDistance;
+        int hitCount = Physics.SphereCastNonAlloc(
+            orbitPivot,
+            Mathf.Max(0.05f, cameraCollisionRadius),
+            castDirection,
+            cameraCastHits,
+            castDistance,
+            cameraCollisionMask,
+            QueryTriggerInteraction.Ignore
+        );
+
+        float nearestHitDistance = float.PositiveInfinity;
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider hitCollider = cameraCastHits[i].collider;
+            if (hitCollider == null)
+                continue;
+
+            // The cast begins at the car, so its own body and wheel colliders
+            // must not pull the camera into the vehicle.
+            if (hitCollider.GetComponentInParent<Vehicle>() == current)
+                continue;
+
+            if (hitCollider.transform == transform ||
+                hitCollider.transform.IsChildOf(transform))
+                continue;
+
+            if (cameraCastHits[i].distance < nearestHitDistance)
+                nearestHitDistance = cameraCastHits[i].distance;
+        }
+
+        if (!float.IsInfinity(nearestHitDistance))
+        {
+            float safeDistance = Mathf.Max(
+                0f,
+                nearestHitDistance - Mathf.Max(0f, cameraCollisionPadding)
+            );
+
+            cameraTargetPosition = orbitPivot + castDirection * safeDistance;
+            cameraBlocked = true;
+        }
+    }
+
+    // Move inward immediately when an obstacle is detected so the camera cannot
+    // linger inside geometry. Smooth the return to the normal orbit after it clears.
+    if (cameraBlocked)
+    {
+        cam.transform.position = cameraTargetPosition;
+    }
+    else
+    {
+        float positionBlend = 1f - Mathf.Exp(
+            -camPositionSmooth * Time.deltaTime
+        );
+
+        cam.transform.position = Vector3.Lerp(
+            cam.transform.position,
+            cameraTargetPosition,
+            positionBlend
+        );
+    }
 
     float rotationBlend = 1f - Mathf.Exp(
         -camRotationSmooth * Time.deltaTime
-    );
-
-    cam.transform.position = Vector3.Lerp(
-        cam.transform.position,
-        desiredPos,
-        positionBlend
     );
 
     // Aim at the configured camera point without changing the camera's orbit distance.
