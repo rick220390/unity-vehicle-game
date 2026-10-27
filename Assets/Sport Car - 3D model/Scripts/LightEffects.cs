@@ -63,15 +63,39 @@ public class LightEffects : MonoBehaviour
         public float spotAngle;
     }
 
-    [Header("Parked Vehicle Emission")]
-    [Tooltip("Emission multiplier used only while the car is unoccupied and all exterior lights are off. Lower values make parked lamp/body materials glow less at night.")]
+    [Header("HDRP Emission Intensity")]
+    [Tooltip("HDRP Lit materials named with 'leds-rear' use these emission intensities when the tail lights are on/off.")]
+    [Min(0f)] public float rearLedOnIntensity = 60f;
+    [Min(0f)] public float rearLedOffIntensity = 5f;
+
+    [Tooltip("HDRP Lit materials named with 'white-lights' use these intensities when the headlights are on/off.")]
+    [Min(0f)] public float frontLampOnIntensity = 200f;
+    [Min(0f)] public float frontLampOffIntensity = 6f;
+
+    [Tooltip("HDRP Lit materials named with 'brake-lights' use these intensities while braking/not braking.")]
+    [Min(0f)] public float brakeLampOnIntensity = 588.1335f;
+    [Min(0f)] public float brakeLampOffIntensity = 15f;
+
+    [Header("Other Parked Vehicle Emission")]
+    [Tooltip("Multiplier for emissive materials not matched by the named HDRP light-material rules, while the vehicle is unoccupied and exterior lights are off.")]
     [Range(0f, 1f)] public float unoccupiedEmissionMultiplier = 0.05f;
+
+    private enum EmissionChannel
+    {
+        Generic,
+        RearLeds,
+        FrontLamps,
+        BrakeLamps
+    }
 
     private struct EmissionSnapshot
     {
         public Material material;
         public string colorProperty;
+        public string intensityProperty;
         public Color originalColor;
+        public float originalIntensity;
+        public EmissionChannel channel;
     }
 
     private Vehicle vehicle;
@@ -117,8 +141,13 @@ public class LightEffects : MonoBehaviour
         // parked cars can be dimmed without modifying shared project materials.
         CacheVehicleEmissionMaterials();
 
-        // Start with exterior lamps off, but never rely on deactivating a shared
-        // object elsewhere in the scene; all searches are limited to this vehicle.
+        // Keep lamp meshes active so their low, realistic off-state emission can
+        // still be rendered. Control actual illumination with Light components
+        // and the per-material HDRP emission intensities instead.
+        if (FL != null && !FL.activeSelf) FL.SetActive(true);
+        if (TL != null && !TL.activeSelf) TL.SetActive(true);
+        if (BL != null && !BL.activeSelf) BL.SetActive(true);
+
         ApplyLightingMode();
         ApplyBrakeLights(false);
         UpdateUnoccupiedEmissionDimming();
@@ -300,17 +329,11 @@ public class LightEffects : MonoBehaviour
         bool lightsOn = lightingMode != LightingMode.Off;
         bool mainBeamOn = lightingMode == LightingMode.MainBeam;
 
-        if (FL != null && FL.activeSelf != lightsOn)
-            FL.SetActive(lightsOn);
-        if (TL != null && TL.activeSelf != lightsOn)
-            TL.SetActive(lightsOn);
-
+        // Keep lamp meshes active so the configured low off-state glow can show.
+        // Actual light beams are controlled by the Light components below.
         ApplyHeadlightSnapshots(headlightDefaults, lightsOn,
             mainBeamOn && !hasSeparateMainBeam);
         ApplyHeadlightSnapshots(mainBeamDefaults, mainBeamOn, false);
-
-        // The light groups themselves control visible lamps. Emission intensity
-        // is handled separately so parked vehicles can retain a faint glow.
     }
 
     private void ApplyHeadlightSnapshots(
@@ -343,8 +366,10 @@ public class LightEffects : MonoBehaviour
     {
         brakeLightsActive = active;
 
-        if (BL != null && BL.activeSelf != active)
-            BL.SetActive(active);
+        // Keep brake-lamp meshes active to show their configured low off-state
+        // emission. The actual brake-light components turn on only while braking.
+        if (BL != null && !BL.activeSelf)
+            BL.SetActive(true);
 
         if (detectedBrakeLights != null)
         {
@@ -353,12 +378,9 @@ public class LightEffects : MonoBehaviour
                 if (snapshot.light == null)
                     continue;
 
-                snapshot.light.enabled = active && snapshot.wasEnabled;
+                snapshot.light.enabled = active;
             }
         }
-
-        // Brake lamp meshes/lights follow the brake group; emission dimming is
-        // managed globally for this vehicle below.
     }
 
     private Transform FindDescendant(string targetName)
@@ -411,22 +433,33 @@ public class LightEffects : MonoBehaviour
                 if (material == null)
                     continue;
 
-                // URP/Standard shaders commonly use _EmissionColor; HDRP shaders
-                // can expose the equivalent property as _EmissiveColor.
-                string colorProperty = material.HasProperty("_EmissionColor")
-                    ? "_EmissionColor"
-                    : material.HasProperty("_EmissiveColor")
-                        ? "_EmissiveColor"
+                // HDRP Lit may expose intensity separately from its emissive
+                // colour, while other shaders bake intensity into the colour.
+                string colorProperty = material.HasProperty("_EmissiveColor")
+                    ? "_EmissiveColor"
+                    : material.HasProperty("_EmissionColor")
+                        ? "_EmissionColor"
                         : null;
+                string intensityProperty = material.HasProperty("_EmissiveIntensity")
+                    ? "_EmissiveIntensity"
+                    : null;
 
-                if (string.IsNullOrEmpty(colorProperty))
+                EmissionChannel channel = GetEmissionChannel(material.name);
+                if (string.IsNullOrEmpty(colorProperty) && string.IsNullOrEmpty(intensityProperty))
                     continue;
 
                 vehicleEmissionSnapshots.Add(new EmissionSnapshot
                 {
                     material = material,
                     colorProperty = colorProperty,
-                    originalColor = material.GetColor(colorProperty)
+                    intensityProperty = intensityProperty,
+                    originalColor = string.IsNullOrEmpty(colorProperty)
+                        ? Color.white
+                        : material.GetColor(colorProperty),
+                    originalIntensity = string.IsNullOrEmpty(intensityProperty)
+                        ? 1f
+                        : material.GetFloat(intensityProperty),
+                    channel = channel
                 });
             }
             renderer.sharedMaterials = materials;
@@ -437,24 +470,100 @@ public class LightEffects : MonoBehaviour
     {
         bool dimForParking = lightingMode == LightingMode.Off &&
                              (vehicle == null || !vehicle.HasDriver);
-        float targetMultiplier = dimForParking
+        float genericMultiplier = dimForParking
             ? Mathf.Clamp01(unoccupiedEmissionMultiplier)
             : 1f;
 
-        if (Mathf.Approximately(appliedEmissionMultiplier, targetMultiplier))
-            return;
-
-        appliedEmissionMultiplier = targetMultiplier;
+        bool exteriorLightsOn = lightingMode != LightingMode.Off;
 
         foreach (EmissionSnapshot snapshot in vehicleEmissionSnapshots)
         {
             if (snapshot.material == null)
                 continue;
 
-            snapshot.material.SetColor(
-                snapshot.colorProperty,
-                snapshot.originalColor * targetMultiplier);
+            switch (snapshot.channel)
+            {
+                case EmissionChannel.RearLeds:
+                    ApplyConfiguredEmission(snapshot, exteriorLightsOn
+                        ? rearLedOnIntensity : rearLedOffIntensity, rearLedOnIntensity);
+                    break;
+
+                case EmissionChannel.FrontLamps:
+                    ApplyConfiguredEmission(snapshot, exteriorLightsOn
+                        ? frontLampOnIntensity : frontLampOffIntensity, frontLampOnIntensity);
+                    break;
+
+                case EmissionChannel.BrakeLamps:
+                    ApplyConfiguredEmission(snapshot, brakeLightsActive
+                        ? brakeLampOnIntensity : brakeLampOffIntensity, brakeLampOnIntensity);
+                    break;
+
+                default:
+                    // For generic materials prefer HDRP's separate intensity
+                    // property where available, so colour and intensity are not
+                    // both multiplied (which would dim the material twice).
+                    if (!string.IsNullOrEmpty(snapshot.intensityProperty))
+                    {
+                        snapshot.material.SetFloat(snapshot.intensityProperty,
+                            snapshot.originalIntensity * genericMultiplier);
+
+                        if (!string.IsNullOrEmpty(snapshot.colorProperty))
+                            snapshot.material.SetColor(snapshot.colorProperty, snapshot.originalColor);
+                    }
+                    else if (!string.IsNullOrEmpty(snapshot.colorProperty))
+                    {
+                        snapshot.material.SetColor(snapshot.colorProperty,
+                            snapshot.originalColor * genericMultiplier);
+                    }
+                    break;
+            }
         }
+
+        appliedEmissionMultiplier = genericMultiplier;
+    }
+
+    private void ApplyConfiguredEmission(
+        EmissionSnapshot snapshot,
+        float targetIntensity,
+        float referenceOnIntensity)
+    {
+        if (!string.IsNullOrEmpty(snapshot.intensityProperty))
+        {
+            // These values correspond directly to the HDRP Lit Emission
+            // Intensity field shown in the material Inspector.
+            snapshot.material.SetFloat(snapshot.intensityProperty, targetIntensity);
+
+            // Keep the original emissive tint intact when intensity is separate.
+            if (!string.IsNullOrEmpty(snapshot.colorProperty))
+                snapshot.material.SetColor(snapshot.colorProperty, snapshot.originalColor);
+        }
+        else if (!string.IsNullOrEmpty(snapshot.colorProperty))
+        {
+            // Some shaders store the intensity in the HDR emissive colour itself.
+            float denominator = Mathf.Max(0.0001f, referenceOnIntensity);
+            float colourMultiplier = targetIntensity / denominator;
+            snapshot.material.SetColor(snapshot.colorProperty,
+                snapshot.originalColor * colourMultiplier);
+        }
+    }
+
+    private static EmissionChannel GetEmissionChannel(string materialName)
+    {
+        if (string.IsNullOrEmpty(materialName))
+            return EmissionChannel.Generic;
+
+        string normalized = materialName.ToLowerInvariant()
+            .Replace("_", "-")
+            .Replace(" ", "-");
+
+        if (normalized.Contains("leds-rear") || normalized.Contains("led-rear"))
+            return EmissionChannel.RearLeds;
+        if (normalized.Contains("brake-lights") || normalized.Contains("brake-light"))
+            return EmissionChannel.BrakeLamps;
+        if (normalized.Contains("white-lights") || normalized.Contains("white-light"))
+            return EmissionChannel.FrontLamps;
+
+        return EmissionChannel.Generic;
     }
 
     private void CacheEmissionMaterials(
