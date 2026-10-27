@@ -190,26 +190,43 @@ public class Vehicle : MonoBehaviour
     {
         foreach (WheelCollider wheel in validWheels)
         {
+            if (wheel == null)
+                continue;
+
+            // Substeps are setup, not a per-frame tuning value.
             wheel.ConfigureVehicleSubsteps(5f, 12, 15);
-            wheel.suspensionDistance = suspensionDistance;
+        }
+
+        ApplyWheelColliderTuning();
+    }
+
+    private void ApplyWheelColliderTuning()
+    {
+        // Apply these values continuously so Inspector changes and future upgrades
+        // take effect during Play mode without restarting the vehicle.
+        for (int i = 0; i < validWheels.Count; i++)
+        {
+            WheelCollider wheel = validWheels[i];
+            if (wheel == null)
+                continue;
+
+            wheel.radius = Mathf.Max(0.05f, wheelRadius);
+            wheel.suspensionDistance = Mathf.Max(0.01f, suspensionDistance);
+
             JointSpring spring = wheel.suspensionSpring;
-            spring.spring = suspensionSpring;
-            spring.damper = suspensionDamper;
-            spring.targetPosition = 0.5f;
+            spring.spring = Mathf.Max(1f, suspensionSpring);
+            spring.damper = Mathf.Max(0f, suspensionDamper);
             wheel.suspensionSpring = spring;
 
             WheelFrictionCurve forward = wheel.forwardFriction;
-            forward.stiffness = forwardGrip;
+            forward.stiffness = Mathf.Max(0.01f, forwardGrip);
             wheel.forwardFriction = forward;
 
             WheelFrictionCurve sideways = wheel.sidewaysFriction;
-            int wheelIndex = validWheels.IndexOf(wheel);
-            bool frontWheel = ContainsIndex(steeringWheelIndexes, wheelIndex);
-            sideways.stiffness = frontWheel ? frontSidewaysGrip : rearSidewaysGrip;
+            bool frontWheel = ContainsIndex(steeringWheelIndexes, i);
+            sideways.stiffness = Mathf.Max(0.01f,
+                frontWheel ? frontSidewaysGrip : rearSidewaysGrip);
             wheel.sidewaysFriction = sideways;
-
-            if (wheel.radius <= 0.01f)
-                wheel.radius = wheelRadius;
         }
     }
 
@@ -242,6 +259,12 @@ public class Vehicle : MonoBehaviour
         debugSpeedKph = Speed * 3.6f;
         debugHasDriver = HasDriver;
         debugUsingWheelColliders = validWheels.Count > 0;
+
+        // Keep WheelCollider physics synchronized with live tuning values.
+        // This also gives future upgrades one authoritative path to apply changes.
+        if (validWheels.Count > 0)
+            ApplyWheelColliderTuning();
+
         UpdateDrivetrain(Time.fixedDeltaTime);
 
         if (validWheels.Count > 0)
