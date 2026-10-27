@@ -134,6 +134,10 @@ void LateUpdate()
         ? current.cameraPoint.position
         : orbitPivot;
 
+    // Avoid aiming steeply down at a low cameraPoint. Keep the target a little
+    // above the vehicle's normal orbit pivot so more of the road ahead is visible.
+    lookTarget.y = Mathf.Max(lookTarget.y, orbitPivot.y + 0.6f);
+
     // Calculate the camera's orbit around the vehicle using the existing distance
     // and height settings, preserving the framing that worked before cameraPoint
     // was connected.
@@ -143,10 +147,10 @@ void LateUpdate()
         0f
     );
 
-    // Bring the default orbit closer to the vehicle while preserving the
-    // Inspector value as the tuning control. The 0.75 multiplier also affects
-    // already-configured scenes whose serialized camDistance is still 6.
-    float effectiveCamDistance = Mathf.Max(1f, camDistance * 0.75f);
+    // Keep the camera closer than the original default, but give enough
+    // distance to see the road ahead and avoid an overly steep viewing angle.
+    // The multiplier also applies to existing scenes with serialized camDistance = 6.
+    float effectiveCamDistance = Mathf.Max(1f, camDistance * 0.85f);
 
     Vector3 desiredPos = orbitPivot
                        - orbitRotation * Vector3.forward * effectiveCamDistance
