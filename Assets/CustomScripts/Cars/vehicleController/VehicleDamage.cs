@@ -61,6 +61,7 @@ public class VehicleDamage : MonoBehaviour
     {
         public MeshFilter filter;
         public Mesh instance;
+        public Mesh originalSharedMesh;
         public Vector3[] originalVertices;
         public Vector3[] vertices;
         public Vector3[] accumulatedOffsets;
@@ -171,6 +172,7 @@ public class VehicleDamage : MonoBehaviour
             {
                 filter = filter,
                 instance = instance,
+                originalSharedMesh = source,
                 originalVertices = source.vertices,
                 vertices = instance.vertices,
                 accumulatedOffsets = new Vector3[source.vertexCount]
@@ -295,7 +297,7 @@ public class VehicleDamage : MonoBehaviour
 
             // Restore the original shared mesh reference if this filter still exists.
             if (runtime.filter != null && runtime.filter.sharedMesh == runtime.instance)
-                runtime.filter.sharedMesh = runtime.originalVertices != null ? runtime.filter.sharedMesh : null;
+                runtime.filter.sharedMesh = runtime.originalSharedMesh;
 
             if (Application.isPlaying)
                 Destroy(runtime.instance);
