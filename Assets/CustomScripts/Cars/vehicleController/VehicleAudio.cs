@@ -284,60 +284,67 @@ public class VehicleAudio : MonoBehaviour
         else if (peakRevSource == null || !peakRevSource.isPlaying)
             peakRevElapsed = 0f;
 
-        // Approximate engine RPM: throttle raises RPM, while releasing the
-        // accelerator lets RPM fall. A gear change drops RPM and restarts the
-        // acceleration recording so it sounds like the next gear pulling.
+        // Use the vehicle drivetrain's real RPM and gear whenever available.
+        // This prevents the audio from reaching its peak merely because the
+        // accelerator has been held for a fixed amount of time.
         if (engineRunning && throttle > 0.08f)
         {
-            simulatedRpm = Mathf.MoveTowards(
-                simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
-
-            // Shift gears from simulated RPM and elapsed time, not from the
-            // peak-rev audio. The peak recording represents maximum engine load,
-            // so it must not be used as the sound for every gear before shifting.
-            if (simulateGearShifts && !revSoundIsLoop &&
-                !handbrakeBurnout &&
-                throttle > 0.8f &&
-                simulatedRpm >= shiftRpm &&
-                timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
-                simulatedGear < Mathf.Max(2, simulatedGears))
+            if (vehicle != null)
             {
-                simulatedGear++;
-                simulatedRpm = rpmAfterShift;
-                timeSinceLastGearShift = 0f;
-                peakRevElapsed = 0f;
+                simulatedRpm = Mathf.InverseLerp(
+                    vehicle.idleRpm, vehicle.redlineRpm, vehicle.EngineRpm);
 
-                if (engineRev != null && loopSoundsStarted)
+                // Follow real gearbox changes rather than running an independent
+                // audio-only gearbox. This keeps the rev ramp and peak loop aligned
+                // with the speed/gear configured on the Vehicle component.
+                if (simulateGearShifts && !revSoundIsLoop &&
+                    vehicle.CurrentGear != simulatedGear &&
+                    timeSinceLastGearShift >= 0.05f)
                 {
-                    peakRevSource.Stop();
-                    RestartRevClip(revPitchAtIdle);
-                    if (gearChange != null)
-                        oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
+                    simulatedGear = vehicle.CurrentGear;
+                    timeSinceLastGearShift = 0f;
+                    peakRevElapsed = 0f;
+
+                    if (engineRev != null && loopSoundsStarted)
+                    {
+                        peakRevSource.Stop();
+                        RestartRevClip(revPitchAtIdle);
+                        if (gearChange != null)
+                            oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
+                    }
                 }
+                else
+                {
+                    simulatedGear = vehicle.CurrentGear;
+                }
+            }
+            else
+            {
+                // Fallback for safety if this component is reused without a
+                // functioning Vehicle reference.
+                simulatedRpm = Mathf.MoveTowards(
+                    simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
             }
         }
         else
         {
+            // Keep the release sound's fall-off behaviour, then let the next
+            // throttle pull use the live drivetrain RPM again.
             simulatedRpm = Mathf.MoveTowards(
                 simulatedRpm, 0f, rpmFallResponse * dt);
 
-            // Downshift as the car slows, even if the driver never lets the
-            // simulated RPM reach idle. Without this, a quick corner or drift can
-            // leave the gearbox stuck in its highest gear and prevent further shifts.
-            if (simulateGearShifts && !revSoundIsLoop &&
-                timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
-                simulatedGear > 1 &&
-                (speedFactor < 0.35f || (throttle <= 0.08f && speedFactor < 0.55f)))
+            if (vehicle != null)
+                simulatedGear = vehicle.CurrentGear;
+            else if (timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
+                     simulatedGear > 1 &&
+                     (speedFactor < 0.35f || (throttle <= 0.08f && speedFactor < 0.55f)))
             {
                 simulatedGear--;
-                simulatedRpm = Mathf.Min(simulatedRpm, rpmAfterShift);
                 timeSinceLastGearShift = 0f;
-                peakRevElapsed = 0f;
                 if (gearChange != null && loopSoundsStarted)
                     oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
             }
 
-            // At a near stop, reset the simulated gearbox for the next pull-away.
             if (speedFactor < 0.08f && simulatedRpm < 0.12f)
                 simulatedGear = 1;
         }
@@ -370,7 +377,7 @@ public class VehicleAudio : MonoBehaviour
                 // high RPM, the peak recording fills the gap until the next
                 // simulated shift, including wheelspin where road speed is low.
                 // In top gear it remains the sound at maximum road speed.
-                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= shiftRpm;
+                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= 0.96f;
                 bool stationaryBurnout = stationary && vehicle != null &&
                                          vehicle.Handbrake && throttle >= 0.9f;
                 bool atTopSpeedInTopGear =
@@ -389,7 +396,7 @@ public class VehicleAudio : MonoBehaviour
         // If the rev sweep finished before the car reached top speed, start
         // the peak loop as soon as the correct condition becomes true.
         bool highRpmLimiterActive = !revSoundIsLoop && simulateGearShifts &&
-                                    throttle >= 0.8f && simulatedRpm >= shiftRpm;
+                                    throttle >= 0.8f && simulatedRpm >= 0.96f;
         bool allowPeakRev = highRpmLimiterActive ||
                             (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
                             (simulatedGear >= Mathf.Max(2, simulatedGears) &&
