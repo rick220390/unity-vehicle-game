@@ -97,6 +97,8 @@ public class Vehicle : MonoBehaviour
     public float Throttle { get; private set; }
     public float Steer { get; private set; }
     public bool Handbrake { get; private set; }
+    /// <summary>True while the service brake or handbrake is being applied by the driver.</summary>
+    public bool IsBraking { get; private set; }
     public float EngineRpm { get; private set; } = 850f;
     public int CurrentGear { get; private set; } = 1;
     public bool IsShifting => shiftTimer > 0f;
@@ -291,6 +293,7 @@ public class Vehicle : MonoBehaviour
     public void Release()
     {
         HasDriver = false;
+        IsBraking = false;
         SetInput(0f, 0f, false);
         StopWheelTorque();
     }
@@ -350,6 +353,7 @@ public class Vehicle : MonoBehaviour
             appliedThrottle, targetThrottle, throttleResponse * dt);
         appliedBrake = Mathf.MoveTowards(
             appliedBrake, targetBrake, brakeResponse * serviceBrakeTorque * dt);
+        IsBraking = HasDriver && appliedBrake > 1f;
         appliedSteer = Mathf.Lerp(
             appliedSteer, HasDriver ? Steer : 0f,
             1f - Mathf.Exp(-steeringResponse * dt));
@@ -578,6 +582,10 @@ public class Vehicle : MonoBehaviour
         float forwardSpeed = Vector3.Dot(velocity, transform.forward);
         float lateralSpeed = Vector3.Dot(velocity, transform.right);
         float throttle = HasDriver ? Throttle : 0f;
+        bool opposingInput = Mathf.Abs(forwardSpeed) > 0.5f &&
+                             Mathf.Abs(throttle) > 0.05f &&
+                             Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
+        IsBraking = HasDriver && (Handbrake || opposingInput);
 
         if (HasDriver && Handbrake)
         {
@@ -585,8 +593,7 @@ public class Vehicle : MonoBehaviour
         }
         else if (Mathf.Abs(throttle) > 0.01f)
         {
-            bool opposing = Mathf.Abs(forwardSpeed) > 0.5f && Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
-            if (opposing)
+            if (opposingInput)
                 forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, fallbackBrakeDeceleration * Mathf.Abs(throttle) * dt);
             else
             {
