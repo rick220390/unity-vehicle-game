@@ -29,6 +29,10 @@ public class VehicleAudio : MonoBehaviour
     public bool revSoundIsLoop = true;
     [Range(0f, 1f)] public float idleVolume = 1f;
     [Range(0f, 1f)] public float revVolume = 1f;
+    [Tooltip("Volume for the engine startup sound when the driver enters the vehicle.")]
+    [Range(0f, 1f)] public float engineStartVolume = 0.35f;
+    [Tooltip("Volume for the engine shutdown sound when the driver exits the vehicle.")]
+    [Range(0f, 1f)] public float engineShutdownVolume = 0.35f;
     [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
     [Range(0f, 1f)] public float decelerationVolume = 0.45f;
     [Tooltip("How much the idle sound is reduced while the deceleration clip plays.")]
@@ -147,7 +151,7 @@ public class VehicleAudio : MonoBehaviour
         startDelayRemaining = engineStart != null ? engineStart.length : 0f;
 
         if (engineStart != null)
-            oneShotSource.PlayOneShot(engineStart);
+            oneShotSource.PlayOneShot(engineStart, engineStartVolume);
 
         if (startDelayRemaining <= 0f)
         {
@@ -180,7 +184,7 @@ public class VehicleAudio : MonoBehaviour
         revSource.volume = 0f;
 
         if (engineShutdown != null)
-            oneShotSource.PlayOneShot(engineShutdown);
+            oneShotSource.PlayOneShot(engineShutdown, engineShutdownVolume);
     }
 
     private void StartLoop(AudioSource source)
