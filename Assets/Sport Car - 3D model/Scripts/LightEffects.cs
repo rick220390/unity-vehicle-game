@@ -101,6 +101,7 @@ public class LightEffects : MonoBehaviour
     private Vehicle vehicle;
     private LightingMode lightingMode = LightingMode.Off;
     private Light[] detectedBrakeLights;
+    private Light[] detectedTailLights;
     private LightSnapshot[] headlightDefaults;
     private LightSnapshot[] mainBeamDefaults;
     private LightSnapshot[] brakeLightDefaults;
@@ -137,6 +138,7 @@ public class LightEffects : MonoBehaviour
 
         CacheHeadlights();
         CacheMainBeamLights();
+        CacheTailLights();
         CacheBrakeLights();
 
         headlightDefaults = CaptureLights(headlightSpots);
@@ -260,6 +262,20 @@ public class LightEffects : MonoBehaviour
         mainBeamLights = found.ToArray();
     }
 
+    private void CacheTailLights()
+    {
+        if (TL == null)
+        {
+            detectedTailLights = new Light[0];
+            return;
+        }
+
+        // Tail-light spotlights are separate from the emissive tail-lamp meshes.
+        // Keep the group and meshes active for the dim off-state glow, but control
+        // every actual Light component here so it cannot remain lit when parked.
+        detectedTailLights = TL.GetComponentsInChildren<Light>(true);
+    }
+
     private void CacheBrakeLights()
     {
         var found = new List<Light>();
@@ -342,6 +358,19 @@ public class LightEffects : MonoBehaviour
         ApplyHeadlightSnapshots(headlightDefaults, lightsOn,
             mainBeamOn && !hasSeparateMainBeam);
         ApplyHeadlightSnapshots(mainBeamDefaults, mainBeamOn, false);
+        SetGroupLightsEnabled(detectedTailLights, lightsOn);
+    }
+
+    private static void SetGroupLightsEnabled(Light[] lights, bool enabled)
+    {
+        if (lights == null)
+            return;
+
+        foreach (Light light in lights)
+        {
+            if (light != null)
+                light.enabled = enabled;
+        }
     }
 
     private void ApplyHeadlightSnapshots(
