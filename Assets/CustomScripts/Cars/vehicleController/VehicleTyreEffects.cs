@@ -25,6 +25,8 @@ public class VehicleTyreEffects : MonoBehaviour
     [Min(0.1f)] public float squealMinDistance = 12f;
     [Tooltip("Distance at which the squeal becomes inaudible.")]
     [Min(1f)] public float squealMaxDistance = 100f;
+    [Tooltip("Seconds of overlap between loop repetitions to hide the loop point.")]
+    [Range(0.05f, 1f)] public float loopCrossfadeDuration = 0.35f;
 
     [Header("Smoke")]
     [Tooltip("Optional particle systems, one per wheel, in the same order as Vehicle.wheelColliders.")]
@@ -42,6 +44,11 @@ public class VehicleTyreEffects : MonoBehaviour
 
     private Vehicle vehicle;
     private AudioSource squealSource;
+    private AudioSource squealSourceB;
+    private AudioSource activeLoopSource;
+    private AudioSource nextLoopSource;
+    private bool isCrossfading;
+    private float crossfadeTimer;
     private float[] particleEmissionRemainders;
 
     private void Awake()
@@ -49,16 +56,10 @@ public class VehicleTyreEffects : MonoBehaviour
         vehicle = GetComponent<Vehicle>();
 
         // Use a dedicated source so tyre squeal cannot overwrite the engine audio source.
-        squealSource = gameObject.AddComponent<AudioSource>();
-        squealSource.playOnAwake = false;
-        squealSource.loop = true;
-        squealSource.spatialBlend = squealSpatialBlend;
-        squealSource.rolloffMode = AudioRolloffMode.Logarithmic;
-        squealSource.minDistance = squealMinDistance;
-        squealSource.maxDistance = squealMaxDistance;
-        squealSource.volume = 0f;
-        squealSource.pitch = squealPitch;
-        squealSource.clip = tyreSquealClip;
+        squealSource = CreateSquealSource();
+        squealSourceB = CreateSquealSource();
+        activeLoopSource = squealSource;
+        nextLoopSource = squealSourceB;
 
         int wheelCount = vehicle.wheelColliders != null ? vehicle.wheelColliders.Length : 0;
         particleEmissionRemainders = new float[wheelCount];
@@ -143,6 +144,21 @@ public class VehicleTyreEffects : MonoBehaviour
         smoke.Emit(count);
     }
 
+    private AudioSource CreateSquealSource()
+    {
+        AudioSource source = gameObject.AddComponent<AudioSource>();
+        source.playOnAwake = false;
+        source.loop = false; // We manually crossfade between two overlapping plays.
+        source.spatialBlend = squealSpatialBlend;
+        source.rolloffMode = AudioRolloffMode.Logarithmic;
+        source.minDistance = squealMinDistance;
+        source.maxDistance = squealMaxDistance;
+        source.volume = 0f;
+        source.pitch = squealPitch;
+        source.clip = tyreSquealClip;
+        return source;
+    }
+
     private void FadeSqueal(float slip)
     {
         float targetVolume = 0f;
@@ -159,27 +175,80 @@ public class VehicleTyreEffects : MonoBehaviour
             targetVolume,
             squealFadeSpeed * Time.deltaTime);
 
-        if (squealSource == null)
+        if (squealSource == null || squealSourceB == null)
             return;
 
-        if (squealSource.clip != tyreSquealClip)
-            squealSource.clip = tyreSquealClip;
+        ConfigureSquealSource(squealSource);
+        ConfigureSquealSource(squealSourceB);
 
-        squealSource.spatialBlend = squealSpatialBlend;
-        squealSource.minDistance = squealMinDistance;
-        squealSource.maxDistance = Mathf.Max(squealMinDistance + 0.1f, squealMaxDistance);
-        squealSource.pitch = squealPitch;
-        squealSource.volume = currentSquealVolume;
-
-        if (tyreSquealClip != null && currentSquealVolume > 0.01f)
-        {
-            if (!squealSource.isPlaying)
-                squealSource.Play();
-        }
-        else if (squealSource.isPlaying && currentSquealVolume <= 0.01f)
+        if (tyreSquealClip == null || currentSquealVolume <= 0.01f)
         {
             squealSource.Stop();
+            squealSourceB.Stop();
+            squealSource.volume = 0f;
+            squealSourceB.volume = 0f;
+            isCrossfading = false;
+            return;
         }
+
+        if (!activeLoopSource.isPlaying)
+        {
+            activeLoopSource.clip = tyreSquealClip;
+            activeLoopSource.time = 0f;
+            activeLoopSource.volume = currentSquealVolume;
+            activeLoopSource.Play();
+            nextLoopSource.Stop();
+            nextLoopSource.volume = 0f;
+            isCrossfading = false;
+        }
+
+        float clipLength = tyreSquealClip.length;
+        float overlap = Mathf.Clamp(loopCrossfadeDuration, 0.05f, Mathf.Max(0.05f, clipLength * 0.45f));
+
+        if (!isCrossfading && clipLength > 0.1f &&
+            activeLoopSource.time >= clipLength - overlap)
+        {
+            nextLoopSource.Stop();
+            nextLoopSource.clip = tyreSquealClip;
+            nextLoopSource.time = 0f;
+            nextLoopSource.volume = 0f;
+            nextLoopSource.Play();
+            isCrossfading = true;
+            crossfadeTimer = 0f;
+        }
+
+        if (isCrossfading)
+        {
+            crossfadeTimer += Time.deltaTime;
+            float blend = Mathf.Clamp01(crossfadeTimer / overlap);
+            activeLoopSource.volume = currentSquealVolume * (1f - blend);
+            nextLoopSource.volume = currentSquealVolume * blend;
+
+            if (blend >= 1f)
+            {
+                activeLoopSource.Stop();
+                AudioSource oldSource = activeLoopSource;
+                activeLoopSource = nextLoopSource;
+                nextLoopSource = oldSource;
+                activeLoopSource.volume = currentSquealVolume;
+                nextLoopSource.volume = 0f;
+                isCrossfading = false;
+            }
+        }
+        else
+        {
+            activeLoopSource.volume = currentSquealVolume;
+            nextLoopSource.volume = 0f;
+        }
+    }
+
+    private void ConfigureSquealSource(AudioSource source)
+    {
+        source.spatialBlend = squealSpatialBlend;
+        source.minDistance = squealMinDistance;
+        source.maxDistance = Mathf.Max(squealMinDistance + 0.1f, squealMaxDistance);
+        source.pitch = squealPitch;
+        source.clip = tyreSquealClip;
     }
 
     private void OnDisable()
@@ -188,6 +257,12 @@ public class VehicleTyreEffects : MonoBehaviour
         {
             squealSource.Stop();
             squealSource.volume = 0f;
+        }
+
+        if (squealSourceB != null)
+        {
+            squealSourceB.Stop();
+            squealSourceB.volume = 0f;
         }
     }
 }
