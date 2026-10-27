@@ -10,15 +10,21 @@ using UnityEngine;
 public class VehicleTyreEffects : MonoBehaviour
 {
     [Header("Audio")]
-    [Tooltip("A looping tyre-squeal clip. The AudioSource is created automatically.")]
+    [Tooltip("A looping tyre-squeal clip. A dedicated AudioSource is created automatically.")]
     public AudioClip tyreSquealClip;
-    [Range(0f, 1f)] public float maximumSquealVolume = 0.8f;
+    [Range(0f, 1f)] public float maximumSquealVolume = 1f;
     [Range(0.5f, 2f)] public float squealPitch = 1f;
-    [Min(0.01f)] public float squealFadeSpeed = 5f;
+    [Min(0.01f)] public float squealFadeSpeed = 8f;
     [Tooltip("Combined slip needed before tyre squeal begins.")]
-    [Min(0.01f)] public float squealStartSlip = 0.22f;
+    [Min(0.01f)] public float squealStartSlip = 0.16f;
     [Tooltip("Slip amount at which the squeal reaches full volume.")]
-    [Min(0.02f)] public float squealFullSlip = 0.8f;
+    [Min(0.02f)] public float squealFullSlip = 0.55f;
+    [Tooltip("How 3D the sound is. Lower values make squeal easier to hear at the camera.")]
+    [Range(0f, 1f)] public float squealSpatialBlend = 0.25f;
+    [Tooltip("Distance at which the squeal is heard at full volume.")]
+    [Min(0.1f)] public float squealMinDistance = 12f;
+    [Tooltip("Distance at which the squeal becomes inaudible.")]
+    [Min(1f)] public float squealMaxDistance = 100f;
 
     [Header("Smoke")]
     [Tooltip("Optional particle systems, one per wheel, in the same order as Vehicle.wheelColliders.")]
@@ -42,13 +48,14 @@ public class VehicleTyreEffects : MonoBehaviour
     {
         vehicle = GetComponent<Vehicle>();
 
-        squealSource = GetComponent<AudioSource>();
-        if (squealSource == null)
-            squealSource = gameObject.AddComponent<AudioSource>();
-
+        // Use a dedicated source so tyre squeal cannot overwrite the engine audio source.
+        squealSource = gameObject.AddComponent<AudioSource>();
         squealSource.playOnAwake = false;
         squealSource.loop = true;
-        squealSource.spatialBlend = 1f;
+        squealSource.spatialBlend = squealSpatialBlend;
+        squealSource.rolloffMode = AudioRolloffMode.Logarithmic;
+        squealSource.minDistance = squealMinDistance;
+        squealSource.maxDistance = squealMaxDistance;
         squealSource.volume = 0f;
         squealSource.pitch = squealPitch;
         squealSource.clip = tyreSquealClip;
@@ -88,9 +95,6 @@ public class VehicleTyreEffects : MonoBehaviour
         if (particleEmissionRemainders == null || particleEmissionRemainders.Length != wheels.Length)
             particleEmissionRemainders = new float[wheels.Length];
 
-        float totalSlip = 0f;
-        int slippingWheelCount = 0;
-
         for (int i = 0; i < wheels.Length; i++)
         {
             WheelCollider wheel = wheels[i];
@@ -103,20 +107,17 @@ public class VehicleTyreEffects : MonoBehaviour
             if (grounded)
             {
                 // Sideways slip captures cornering/drifting; forward slip captures
-                // wheelspin and braking lock. Combine both for a single effect signal.
+                // wheelspin and braking lock. Use the strongest wheel's slip for audio
+                // so non-slipping wheels do not dilute the sound of a skid.
                 slip = Mathf.Sqrt(hit.sidewaysSlip * hit.sidewaysSlip +
                                   hit.forwardSlip * hit.forwardSlip);
-
                 maximumWheelSlip = Mathf.Max(maximumWheelSlip, slip);
-                totalSlip += slip;
-                slippingWheelCount++;
             }
 
             UpdateWheelSmoke(i, wheel, grounded, grounded ? hit : default(WheelHit), slip);
         }
 
-        float averageSlip = slippingWheelCount > 0 ? totalSlip / slippingWheelCount : 0f;
-        FadeSqueal(averageSlip);
+        FadeSqueal(maximumWheelSlip);
     }
 
     private void UpdateWheelSmoke(int index, WheelCollider wheel, bool grounded, WheelHit hit, float slip)
@@ -164,6 +165,9 @@ public class VehicleTyreEffects : MonoBehaviour
         if (squealSource.clip != tyreSquealClip)
             squealSource.clip = tyreSquealClip;
 
+        squealSource.spatialBlend = squealSpatialBlend;
+        squealSource.minDistance = squealMinDistance;
+        squealSource.maxDistance = Mathf.Max(squealMinDistance + 0.1f, squealMaxDistance);
         squealSource.pitch = squealPitch;
         squealSource.volume = currentSquealVolume;
 
