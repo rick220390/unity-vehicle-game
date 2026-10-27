@@ -24,6 +24,16 @@ public class Vehicle : MonoBehaviour
     public bool updateWheelVisuals = true;
 
     [Header("Engine and gearbox feel")]
+    [Tooltip("Automatic transmission forward gear ratios, from first to top gear.")]
+    public float[] forwardGearRatios = { 3.20f, 2.10f, 1.45f, 1.00f, 0.78f };
+    [Min(1f)] public float finalDriveRatio = 3.42f;
+    [Min(500f)] public float idleRpm = 850f;
+    [Min(1000f)] public float redlineRpm = 6500f;
+    [Min(100f)] public float upshiftRpm = 5700f;
+    [Min(100f)] public float downshiftRpm = 1800f;
+    [Min(0.1f)] public float gearShiftTime = 0.28f;
+    [Min(0.1f)] public float engineRpmResponse = 4f;
+    [Min(0.1f)] public float clutchEngagementSpeed = 8f;
     [Min(100f)] public float motorTorque = 2600f;
     [Min(500f)] public float maxMotorTorqueAtLowSpeed = 2200f;
     [Min(1f)] public float maxSpeedKph = 150f;
@@ -84,6 +94,9 @@ public class Vehicle : MonoBehaviour
     public float Throttle { get; private set; }
     public float Steer { get; private set; }
     public bool Handbrake { get; private set; }
+    public float EngineRpm { get; private set; } = 850f;
+    public int CurrentGear { get; private set; } = 1;
+    public bool IsShifting => shiftTimer > 0f;
     public float Speed => GetVelocity().magnitude;
     public Collider BodyCollider { get; private set; }
 
@@ -92,6 +105,8 @@ public class Vehicle : MonoBehaviour
     private float appliedBrake;
     private float appliedSteer;
     private bool warnedNoWheels;
+    private float shiftTimer;
+    private float shiftCooldown;
     private readonly List<WheelCollider> validWheels = new List<WheelCollider>();
     private Vector3[] wheelVisualPositionOffsets;
     private Quaternion[] wheelVisualRotationOffsets;
@@ -225,6 +240,7 @@ public class Vehicle : MonoBehaviour
         debugSpeedKph = Speed * 3.6f;
         debugHasDriver = HasDriver;
         debugUsingWheelColliders = validWheels.Count > 0;
+        UpdateDrivetrain(Time.fixedDeltaTime);
 
         if (validWheels.Count > 0)
             DriveWithWheelColliders();
@@ -284,7 +300,7 @@ public class Vehicle : MonoBehaviour
 
         float speedLimit = appliedThrottle < 0f ? maxReverseSpeedKph : maxSpeedKph;
         bool speedLimited = speedKph >= speedLimit && Mathf.Sign(appliedThrottle) == Mathf.Sign(forwardSpeed);
-        float torque = speedLimited ? 0f : appliedThrottle * motorTorque;
+        float torque = speedLimited ? 0f : CalculateDriveTorque(appliedThrottle);
 
         // Keep useful steering at normal road speeds, then progressively reduce
         // the angle at high speed to avoid an abrupt, unstable steering response.
@@ -334,6 +350,69 @@ public class Vehicle : MonoBehaviour
 
         UpdateWheelVisuals();
         debugGrounded = AnyWheelGrounded();
+    }
+
+    private void UpdateDrivetrain(float dt)
+    {
+        shiftCooldown = Mathf.Max(0f, shiftCooldown - dt);
+        shiftTimer = Mathf.Max(0f, shiftTimer - dt);
+
+        float throttle = HasDriver ? Mathf.Abs(Throttle) : 0f;
+        float speedKph = Speed * 3.6f;
+        int gearCount = forwardGearRatios != null ? forwardGearRatios.Length : 0;
+        if (gearCount == 0)
+        {
+            EngineRpm = Mathf.MoveTowards(EngineRpm, idleRpm + throttle * (redlineRpm - idleRpm), engineRpmResponse * redlineRpm * dt);
+            CurrentGear = 1;
+            return;
+        }
+
+        CurrentGear = Mathf.Clamp(CurrentGear, 1, gearCount);
+        float ratio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
+        float wheelCoupledRpm = speedKph / Mathf.Max(1f, maxSpeedKph) * redlineRpm * ratio / Mathf.Max(0.1f, forwardGearRatios[0]);
+        // The clutch slips at low speed, allowing the engine to rev before the car moves.
+        float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
+        float clutchBlend = Mathf.Clamp01(speedKph / Mathf.Max(0.1f, clutchEngagementSpeed));
+        float targetRpm = Mathf.Lerp(freeRevRpm, Mathf.Max(idleRpm, wheelCoupledRpm), clutchBlend);
+        if (shiftTimer > 0f)
+            targetRpm = Mathf.Max(idleRpm, targetRpm * 0.72f);
+
+        EngineRpm = Mathf.Clamp(Mathf.MoveTowards(EngineRpm, targetRpm, engineRpmResponse * redlineRpm * dt), idleRpm, redlineRpm);
+
+        if (!HasDriver || Handbrake || throttle < 0.15f || shiftCooldown > 0f || shiftTimer > 0f)
+            return;
+
+        if (EngineRpm >= upshiftRpm && CurrentGear < gearCount)
+            BeginShift(CurrentGear + 1);
+        else if (EngineRpm <= downshiftRpm && CurrentGear > 1 && speedKph > 8f)
+            BeginShift(CurrentGear - 1);
+    }
+
+    private void BeginShift(int nextGear)
+    {
+        CurrentGear = Mathf.Clamp(nextGear, 1, Mathf.Max(1, forwardGearRatios.Length));
+        shiftTimer = gearShiftTime;
+        shiftCooldown = gearShiftTime + 0.35f;
+    }
+
+    private float CalculateDriveTorque(float throttle)
+    {
+        if (Mathf.Abs(throttle) < 0.01f)
+            return 0f;
+        if (throttle < 0f)
+            return throttle * motorTorque * 0.55f;
+
+        float rpm01 = Mathf.InverseLerp(idleRpm, redlineRpm, EngineRpm);
+        float torqueCurve = rpm01 < 0.55f
+            ? Mathf.Lerp(0.78f, 1f, rpm01 / 0.55f)
+            : Mathf.Lerp(1f, 0.72f, Mathf.InverseLerp(0.55f, 1f, rpm01));
+        float ratio = forwardGearRatios != null && forwardGearRatios.Length > 0
+            ? forwardGearRatios[Mathf.Clamp(CurrentGear - 1, 0, forwardGearRatios.Length - 1)]
+            : 1f;
+        float gearboxMultiplier = ratio * finalDriveRatio;
+        float shiftCut = shiftTimer > 0f ? 0.18f : 1f;
+        float lowSpeedClutch = Mathf.Lerp(0.55f, 1f, Mathf.Clamp01(Speed / Mathf.Max(0.1f, clutchEngagementSpeed)));
+        return throttle * motorTorque * torqueCurve * gearboxMultiplier * 0.22f * shiftCut * lowSpeedClutch;
     }
 
     private void DriveFallback()
