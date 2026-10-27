@@ -119,8 +119,10 @@ public class VehicleDamage : MonoBehaviour
         lastImpactSeverity = severity;
         lastImpactPoint = impactPoint;
         lastAppliedDentDepth = dentDepth;
+        // The chosen contact normal faces back from the obstacle toward the car;
+        // moving vertices along it pushes the impacted panel inward, away from the obstacle.
         lastImpactDeformedVertexCount = DeformAtImpact(
-            impactPoint, -outwardFromObstacle.normalized, dentDepth);
+            impactPoint, outwardFromObstacle.normalized, dentDepth);
 
         currentDamage = Mathf.Clamp01(
             currentDamage + Mathf.Max(0f, severity) * damagePerMaximumImpact);
