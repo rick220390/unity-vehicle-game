@@ -227,25 +227,62 @@ public class VehicleAudioRES2 : MonoBehaviour
                 vehicle = GetComponentInChildren<global::Vehicle>(true);
         }
 
+        // The Inspector may accept a generic Component reference such as Transform.
+        // Never attempt to write RES2 engine fields to that accidentally assigned object.
+        if (res2Component != null && !IsRes2Component(res2Component))
+        {
+            Debug.LogWarning(
+                name + ": Res2 Component was assigned " + res2Component.GetType().FullName +
+                ", not RealisticEngineSound. Searching the vehicle hierarchy for the real RES2 component.",
+                this);
+            res2Component = null;
+            memberCache.Clear();
+            missingMembersLogged.Clear();
+        }
+
         if (res2Component == null)
         {
-            Component[] components = GetComponentsInChildren<Component>(true);
-            foreach (Component candidate in components)
+            // Search this hierarchy first (normal setup: adapter on car root and RES2
+            // prefab parented beneath it), then the discovered Vehicle hierarchy.
+            Component found = FindRes2ComponentIn(transform);
+            if (found == null && vehicle != null)
+                found = FindRes2ComponentIn(vehicle.transform);
+
+            if (found != null)
             {
-                if (candidate != null &&
-                    (candidate.GetType().Name == "RealisticEngineSound" ||
-                     candidate.GetType().FullName == "SkrilStudio.RealisticEngineSound"))
-                {
-                    res2Component = candidate;
-                    memberCache.Clear();
-                    missingMembersLogged.Clear();
-                    break;
-                }
+                res2Component = found;
+                memberCache.Clear();
+                missingMembersLogged.Clear();
             }
         }
 
         if (vehicle != null)
             vehicleRigidbody = vehicle.GetComponent<Rigidbody>();
+    }
+
+    private static Component FindRes2ComponentIn(Transform root)
+    {
+        if (root == null)
+            return null;
+
+        Component[] components = root.GetComponentsInChildren<Component>(true);
+        foreach (Component candidate in components)
+        {
+            if (candidate != null && IsRes2Component(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static bool IsRes2Component(Component candidate)
+    {
+        if (candidate == null)
+            return false;
+
+        Type type = candidate.GetType();
+        return type.Name == "RealisticEngineSound" ||
+               type.FullName == "SkrilStudio.RealisticEngineSound";
     }
 
     private void ApplyStaticVehicleValues()
