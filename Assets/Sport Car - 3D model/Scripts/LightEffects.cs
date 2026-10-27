@@ -123,8 +123,15 @@ public class LightEffects : MonoBehaviour
 
         if (FL == null)
             FL = FindDescendant("FrontLights")?.gameObject;
-        if (BL == null)
+
+        // Prefer the actual named BrakeLights group over any legacy serialized
+        // BL reference, which may point at an older object from the original asset.
+        GameObject namedBrakeGroup = FindDescendant("BrakeLights")?.gameObject;
+        if (namedBrakeGroup != null)
+            BL = namedBrakeGroup;
+        else if (BL == null)
             BL = FindDescendant("BrakeLights")?.gameObject;
+
         if (TL == null)
             TL = FindDescendant("TailLights")?.gameObject;
 
@@ -255,34 +262,35 @@ public class LightEffects : MonoBehaviour
 
     private void CacheBrakeLights()
     {
+        var found = new List<Light>();
+
+        // Every Light inside the dedicated BrakeLights group is a brake light.
+        // Do not rely on the individual spotlight object's name: imported models
+        // often give these children generic names such as "Spot Light".
         if (BL != null)
         {
-            Light[] candidates = BL.GetComponentsInChildren<Light>(true);
-            var found = new List<Light>();
-
-            foreach (Light candidate in candidates)
+            Light[] groupLights = BL.GetComponentsInChildren<Light>(true);
+            foreach (Light candidate in groupLights)
             {
-                if (candidate != null &&
-                    candidate.name.ToLowerInvariant().Contains("brakelight"))
+                if (candidate != null && !found.Contains(candidate))
                     found.Add(candidate);
             }
-
-            detectedBrakeLights = found.ToArray();
         }
-        else
+
+        // Also support brake spotlights outside the group when their object name
+        // explicitly identifies them. This helps older prefab layouts.
+        Light[] allLights = GetComponentsInChildren<Light>(true);
+        foreach (Light candidate in allLights)
         {
-            Light[] candidates = GetComponentsInChildren<Light>(true);
-            var found = new List<Light>();
+            if (candidate == null)
+                continue;
 
-            foreach (Light candidate in candidates)
-            {
-                if (candidate != null &&
-                    candidate.name.ToLowerInvariant().Contains("brakelight"))
-                    found.Add(candidate);
-            }
-
-            detectedBrakeLights = found.ToArray();
+            if (candidate.name.ToLowerInvariant().Contains("brakelight") &&
+                !found.Contains(candidate))
+                found.Add(candidate);
         }
+
+        detectedBrakeLights = found.ToArray();
     }
 
     private static bool ContainsLight(Light[] lights, Light target)
@@ -373,12 +381,15 @@ public class LightEffects : MonoBehaviour
 
         if (detectedBrakeLights != null)
         {
-            foreach (LightSnapshot snapshot in brakeLightDefaults)
+            foreach (Light light in detectedBrakeLights)
             {
-                if (snapshot.light == null)
+                if (light == null)
                     continue;
 
-                snapshot.light.enabled = active;
+                // Explicitly drive the light component to the requested state.
+                // Don't preserve its prefab enabled flag: brake spots must be off
+                // at rest and enabled whenever the player actually brakes.
+                light.enabled = active;
             }
         }
     }
