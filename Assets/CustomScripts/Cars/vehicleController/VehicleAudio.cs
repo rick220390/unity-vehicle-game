@@ -33,6 +33,8 @@ public class VehicleAudio : MonoBehaviour
     [Range(0f, 1f)] public float engineStartVolume = 0.35f;
     [Tooltip("Volume for the engine shutdown sound when the driver exits the vehicle.")]
     [Range(0f, 1f)] public float engineShutdownVolume = 0.35f;
+    [Tooltip("Volume for the sustained maximum-RPM engine recording. This is independent of the normal rev volume.")]
+    [Range(0f, 1f)] public float peakRevVolume = 0.85f;
     [Tooltip("Volume for the sound played when the simulated gearbox changes gear.")]
     [Range(0f, 1f)] public float gearChangeVolume = 0.5f;
     [Tooltip("Volume for the falling-RPM recording played when the accelerator is released.")]
@@ -288,7 +290,7 @@ public class VehicleAudio : MonoBehaviour
             // Shift gears from simulated RPM and elapsed time, not from the
             // peak-rev audio. The peak recording represents maximum engine load,
             // so it must not be used as the sound for every gear before shifting.
-            if (simulateGearShifts && !revSoundIsLoop && !stationary &&
+            if (simulateGearShifts && !revSoundIsLoop &&
                 throttle > 0.8f &&
                 simulatedRpm >= shiftRpm &&
                 timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
@@ -358,9 +360,11 @@ public class VehicleAudio : MonoBehaviour
                 if (revPlaybackSource.isPlaying)
                     revPlaybackSource.Stop();
 
-                // Only allow the sustained maximum-throttle recording for a
-                // stationary burnout (handbrake + accelerator) or when the car
-                // has reached near its actual top speed in its highest simulated gear.
+                // Keep the engine audible after the rising sweep finishes. At
+                // high RPM, the peak recording fills the gap until the next
+                // simulated shift, including wheelspin where road speed is low.
+                // In top gear it remains the sound at maximum road speed.
+                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= shiftRpm;
                 bool stationaryBurnout = stationary && vehicle != null &&
                                          vehicle.Handbrake && throttle >= 0.9f;
                 bool atTopSpeedInTopGear =
@@ -368,7 +372,7 @@ public class VehicleAudio : MonoBehaviour
                     speedFactor >= 0.95f && throttle >= 0.9f;
 
                 if (enginePeakRev != null && !peakRevSource.isPlaying &&
-                    (stationaryBurnout || atTopSpeedInTopGear))
+                    (highRpmLimiter || stationaryBurnout || atTopSpeedInTopGear))
                 {
                     peakRevElapsed = 0f;
                     peakRevSource.Play();
@@ -378,7 +382,10 @@ public class VehicleAudio : MonoBehaviour
 
         // If the rev sweep finished before the car reached top speed, start
         // the peak loop as soon as the correct condition becomes true.
-        bool allowPeakRev = (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
+        bool highRpmLimiterActive = !revSoundIsLoop && simulateGearShifts &&
+                                    throttle >= 0.8f && simulatedRpm >= shiftRpm;
+        bool allowPeakRev = highRpmLimiterActive ||
+                            (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
                             (simulatedGear >= Mathf.Max(2, simulatedGears) &&
                              speedFactor >= 0.95f && throttle >= 0.9f);
         if (engineRunning && loopSoundsStarted && enginePeakRev != null &&
@@ -442,7 +449,7 @@ public class VehicleAudio : MonoBehaviour
         if (peakRevSource != null)
         {
             float peakTargetVolume = engineRunning && loopSoundsStarted && throttle > 0.08f && peakRevSource.isPlaying
-                ? revVolume
+                ? peakRevVolume
                 : 0f;
             peakRevSource.volume = Mathf.MoveTowards(peakRevSource.volume, peakTargetVolume, volumeResponse * dt);
             peakRevSource.pitch = Mathf.MoveTowards(peakRevSource.pitch, revPitchAtFullThrottle, pitchResponse * dt);
