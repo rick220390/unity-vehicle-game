@@ -42,9 +42,12 @@ public class VehicleAudioRES2 : MonoBehaviour
     public float debugThrottle;
     public float debugSpeedKph;
     public bool debugLastRes2WriteSucceeded;
+    public bool debugRpmWriteSucceeded;
+    public bool debugThrottleWriteSucceeded;
     public float debugRes2ReadbackRPM;
     public string debugRes2Type = "Not found";
     public string debugRes2ObjectPath = "Not found";
+    [TextArea(2, 5)] public string debugWriteDetails = "No writes attempted yet.";
 
     private Rigidbody vehicleRigidbody;
     private bool warnedMissingVehicle;
@@ -122,14 +125,17 @@ public class VehicleAudioRES2 : MonoBehaviour
             : "Not found";
 
         // Vehicle.Speed is metres per second; this adapter sends km/h to RES2.
+        var writeDetails = new List<string>();
         bool writesSucceeded = true;
-        writesSucceeded &= WriteMember("engineCurrentRPM", rpm);
-        writesSucceeded &= WriteMember("maxRPMLimit", redline);
-        writesSucceeded &= WriteMember("carCurrentSpeed", speedKph);
-        writesSucceeded &= WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
+
+        debugRpmWriteSucceeded = WriteMember("engineCurrentRPM", rpm, writeDetails);
+        writesSucceeded &= debugRpmWriteSucceeded;
+        writesSucceeded &= WriteMember("maxRPMLimit", redline, writeDetails);
+        writesSucceeded &= WriteMember("carCurrentSpeed", speedKph, writeDetails);
+        writesSucceeded &= WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph), writeDetails);
 
         bool shifting = vehicle.HasDriver && vehicle.IsShifting;
-        writesSucceeded &= WriteMember("isShifting", shifting);
+        writesSucceeded &= WriteMember("isShifting", shifting, writeDetails);
 
         bool hasThrottleInput =
             Mathf.Abs(vehicle.Throttle) > Mathf.Max(0.001f, throttleDeadZone);
@@ -138,7 +144,8 @@ public class VehicleAudioRES2 : MonoBehaviour
             hasThrottleInput &&
             !shifting &&
             !vehicle.IsBraking;
-        writesSucceeded &= WriteMember("gasPedalPressing", gasPedalPressed);
+        debugThrottleWriteSucceeded = WriteMember("gasPedalPressing", gasPedalPressed, writeDetails);
+        writesSucceeded &= debugThrottleWriteSucceeded;
 
         bool movingBackwards = false;
 
@@ -157,8 +164,9 @@ public class VehicleAudioRES2 : MonoBehaviour
             speedKph <= Mathf.Max(0f, reverseEngageSpeedKph);
 
         writesSucceeded &= WriteMember("isReversing",
-            vehicle.HasDriver && (movingBackwards || reverseRequestedAtLowSpeed));
+            vehicle.HasDriver && (movingBackwards || reverseRequestedAtLowSpeed), writeDetails);
         debugLastRes2WriteSucceeded = writesSucceeded;
+        debugWriteDetails = string.Join("\n", writeDetails);
     }
 
     private static string GetHierarchyPath(Transform current)
@@ -247,10 +255,13 @@ public class VehicleAudioRES2 : MonoBehaviour
         WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph));
     }
 
-    private bool WriteMember(string memberName, object value)
+    private bool WriteMember(string memberName, object value, List<string> writeDetails)
     {
         if (res2Component == null)
+        {
+            writeDetails.Add(memberName + ": FAIL - RES2 component reference is null");
             return false;
+        }
 
         Type targetType = res2Component.GetType();
         if (!memberCache.TryGetValue(memberName, out MemberInfo member))
@@ -263,38 +274,67 @@ public class VehicleAudioRES2 : MonoBehaviour
                 memberCache[memberName] = member;
         }
 
+        if (member == null)
+        {
+            string discovered = string.Join(", ", Array.ConvertAll(
+                targetType.GetMembers(MemberFlags),
+                found => found.Name));
+            writeDetails.Add(memberName + ": NOT FOUND on " + targetType.FullName);
+            if (missingMembersLogged.Add(memberName))
+            {
+                Debug.LogWarning(
+                    name + ": RES2 member '" + memberName + "' was not found on " +
+                    targetType.FullName + ". Actual public/non-public members: " + discovered,
+                    this);
+            }
+            return false;
+        }
+
         try
         {
             if (member is FieldInfo field)
             {
-                field.SetValue(res2Component, value);
+                object convertedValue = ConvertForMember(value, field.FieldType);
+                field.SetValue(res2Component, convertedValue);
+                writeDetails.Add(memberName + ": OK (" + field.FieldType.Name + ")");
                 return true;
             }
 
             if (member is PropertyInfo property && property.CanWrite)
             {
-                property.SetValue(res2Component, value);
+                object convertedValue = ConvertForMember(value, property.PropertyType);
+                property.SetValue(res2Component, convertedValue);
+                writeDetails.Add(memberName + ": OK (" + property.PropertyType.Name + ")");
                 return true;
             }
+
+            writeDetails.Add(memberName + ": FAIL - member is not writable");
         }
         catch (Exception exception)
         {
+            string message = memberName + ": FAIL - " + exception.GetType().Name + ": " + exception.Message;
+            writeDetails.Add(message);
             if (missingMembersLogged.Add(memberName))
-                Debug.LogWarning(
-                    name + ": Could not set RES2 member '" + memberName + "': " + exception.Message,
-                    this);
+                Debug.LogWarning(name + ": " + message, this);
             return false;
         }
 
-        if (missingMembersLogged.Add(memberName))
-        {
-            Debug.LogWarning(
-                name + ": The assigned RES2 component does not expose a writable '" +
-                memberName + "' field/property. Check that the correct RES2 component is assigned.",
-                this);
-        }
-
         return false;
+    }
+
+    private static object ConvertForMember(object value, Type targetType)
+    {
+        if (value == null)
+            return null;
+
+        Type effectiveType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (effectiveType.IsInstanceOfType(value))
+            return value;
+
+        if (effectiveType.IsEnum)
+            return Enum.ToObject(effectiveType, value);
+
+        return Convert.ChangeType(value, effectiveType);
     }
 
     private void OnDisable()
