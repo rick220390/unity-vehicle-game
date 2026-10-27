@@ -279,14 +279,13 @@ public class VehicleAudio : MonoBehaviour
             simulatedRpm = Mathf.MoveTowards(
                 simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
 
-            // Finish the rising-RPM recording, then hold peak revs briefly before
-            // shifting. Clamp the wait so inspector values from older tuning do
-            // not make the gearbox feel stuck in one gear.
-            float peakHoldSeconds = Mathf.Max(0.25f, gearShiftIntervalSeconds);
+            // Shift gears from simulated RPM and elapsed time, not from the
+            // peak-rev audio. The peak recording represents maximum engine load,
+            // so it must not be used as the sound for every gear before shifting.
             if (simulateGearShifts && !revSoundIsLoop && !stationary &&
+                throttle > 0.8f &&
                 simulatedRpm >= shiftRpm &&
-                peakRevSource != null && peakRevSource.isPlaying &&
-                peakRevElapsed >= peakHoldSeconds &&
+                timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
                 simulatedGear < Mathf.Max(2, simulatedGears))
             {
                 simulatedGear++;
@@ -296,8 +295,8 @@ public class VehicleAudio : MonoBehaviour
 
                 if (engineRev != null && loopSoundsStarted)
                 {
-                    RestartRevClip(revPitchAtIdle);
                     peakRevSource.Stop();
+                    RestartRevClip(revPitchAtIdle);
                     if (gearChange != null)
                         oneShotSource.PlayOneShot(gearChange);
                 }
@@ -337,12 +336,36 @@ public class VehicleAudio : MonoBehaviour
                 if (revPlaybackSource.isPlaying)
                     revPlaybackSource.Stop();
 
-                if (enginePeakRev != null && !peakRevSource.isPlaying)
+                // Only allow the sustained maximum-throttle recording for a
+                // stationary burnout (handbrake + accelerator) or when the car
+                // has reached near its actual top speed in its highest simulated gear.
+                bool stationaryBurnout = stationary && vehicle != null &&
+                                         vehicle.Handbrake && throttle >= 0.9f;
+                bool atTopSpeedInTopGear =
+                    simulatedGear >= Mathf.Max(2, simulatedGears) &&
+                    speedFactor >= 0.95f && throttle >= 0.9f;
+
+                if (enginePeakRev != null && !peakRevSource.isPlaying &&
+                    (stationaryBurnout || atTopSpeedInTopGear))
                 {
                     peakRevElapsed = 0f;
                     peakRevSource.Play();
                 }
             }
+        }
+
+        // If the rev sweep finished before the car reached top speed, start
+        // the peak loop as soon as the correct condition becomes true.
+        bool allowPeakRev = (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
+                            (simulatedGear >= Mathf.Max(2, simulatedGears) &&
+                             speedFactor >= 0.95f && throttle >= 0.9f);
+        if (engineRunning && loopSoundsStarted && enginePeakRev != null &&
+            throttle > 0.08f && allowPeakRev && !revRampStarted &&
+            (revPlaybackSource == null || !revPlaybackSource.isPlaying) &&
+            !peakRevSource.isPlaying)
+        {
+            peakRevElapsed = 0f;
+            peakRevSource.Play();
         }
 
         float rpmBlend = Mathf.Clamp01(simulatedRpm);
