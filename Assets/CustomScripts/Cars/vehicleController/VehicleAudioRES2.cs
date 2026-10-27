@@ -29,6 +29,22 @@ public class VehicleAudioRES2 : MonoBehaviour
     [Min(0f)]
     public float reverseEngageSpeedKph = 3f;
 
+    [Header("Chase Camera Audio Distance")]
+    [Tooltip("Keep RES2 engine sources at consistent loudness while the chase camera moves backwards at speed. Disable to retain the prefab's original 3D distance attenuation.")]
+    public bool stabilizeChaseCameraVolume = true;
+
+    [Tooltip("Within this distance, 3D AudioSources play at their loudest. Set this a little above the chase-camera-to-car distance.")]
+    [Min(1f)]
+    public float engineAudioMinDistance = 20f;
+
+    [Tooltip("Distance at which RES2 engine sources reach their far-distance rolloff level.")]
+    [Min(2f)]
+    public float engineAudioMaxDistance = 150f;
+
+    [Tooltip("How often to reapply distance settings in case RES2 creates or replaces AudioSources at runtime.")]
+    [Range(0.1f, 3f)]
+    public float audioDistanceRefreshSeconds = 0.5f;
+
     private static readonly BindingFlags MemberFlags =
         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -50,6 +66,8 @@ public class VehicleAudioRES2 : MonoBehaviour
     [TextArea(2, 5)] public string debugWriteDetails = "No writes attempted yet.";
 
     private Rigidbody vehicleRigidbody;
+    private Transform res2PrefabRoot;
+    private float nextAudioDistanceRefresh;
     private bool warnedMissingVehicle;
     private bool warnedMissingRes2;
 
@@ -85,6 +103,7 @@ public class VehicleAudioRES2 : MonoBehaviour
     private void Update()
     {
         PushRuntimeValues();
+        MaintainEngineAudioDistance();
     }
 
     // RES2 runs in LateUpdate. Reapply after its own update pass as a diagnostic
@@ -258,6 +277,8 @@ public class VehicleAudioRES2 : MonoBehaviour
 
         if (vehicle != null)
             vehicleRigidbody = vehicle.GetComponent<Rigidbody>();
+
+        CacheRes2PrefabRoot();
     }
 
     private static Component FindRes2ComponentIn(Transform root)
@@ -283,6 +304,52 @@ public class VehicleAudioRES2 : MonoBehaviour
         Type type = candidate.GetType();
         return type.Name == "RealisticEngineSound" ||
                type.FullName == "SkrilStudio.RealisticEngineSound";
+    }
+
+    private void CacheRes2PrefabRoot()
+    {
+        if (res2Component == null)
+        {
+            res2PrefabRoot = null;
+            return;
+        }
+
+        Transform root = res2Component.transform;
+        if (vehicle != null && root != vehicle.transform)
+        {
+            while (root.parent != null && root.parent != vehicle.transform)
+                root = root.parent;
+        }
+
+        res2PrefabRoot = root;
+        nextAudioDistanceRefresh = 0f;
+    }
+
+    private void MaintainEngineAudioDistance()
+    {
+        if (!stabilizeChaseCameraVolume || res2PrefabRoot == null)
+            return;
+
+        if (Time.unscaledTime < nextAudioDistanceRefresh)
+            return;
+
+        nextAudioDistanceRefresh =
+            Time.unscaledTime + Mathf.Clamp(audioDistanceRefreshSeconds, 0.1f, 3f);
+
+        AudioSource[] sources = res2PrefabRoot.GetComponentsInChildren<AudioSource>(true);
+        float minDistance = Mathf.Max(1f, engineAudioMinDistance);
+        float maxDistance = Mathf.Max(minDistance + 1f, engineAudioMaxDistance);
+
+        foreach (AudioSource source in sources)
+        {
+            if (source == null)
+                continue;
+
+            // Change only distance attenuation; keep RES2's clips, mixer routing,
+            // volumes, pitch curves and spatial blend settings intact.
+            source.minDistance = minDistance;
+            source.maxDistance = maxDistance;
+        }
     }
 
     private void ApplyStaticVehicleValues()
