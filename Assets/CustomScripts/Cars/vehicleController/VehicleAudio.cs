@@ -267,6 +267,11 @@ public class VehicleAudio : MonoBehaviour
 
         float speedKph = vehicle != null ? vehicle.Speed * 3.6f : 0f;
         bool stationary = speedKph <= stationarySpeedKph;
+        // A handbrake burnout is an engine-load event, not a road-speed gear
+        // event. Keep the simulated gearbox in first while the handbrake is
+        // held at low speed, even with full throttle and maximum simulated RPM.
+        bool handbrakeBurnout = stationary && vehicle != null &&
+                                vehicle.Handbrake && throttle >= 0.8f;
         float speedFactor = vehicle != null && vehicle.maxSpeedKph > 0f
             ? Mathf.Clamp01(speedKph / vehicle.maxSpeedKph)
             : 0f;
@@ -291,6 +296,7 @@ public class VehicleAudio : MonoBehaviour
             // peak-rev audio. The peak recording represents maximum engine load,
             // so it must not be used as the sound for every gear before shifting.
             if (simulateGearShifts && !revSoundIsLoop &&
+                !handbrakeBurnout &&
                 throttle > 0.8f &&
                 simulatedRpm >= shiftRpm &&
                 timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
