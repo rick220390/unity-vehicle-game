@@ -72,6 +72,7 @@ private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
 
 private Vehicle nearby;
+private VehicleDoor nearbyDoor;
 private string message;
 private float messageTimer;
 private readonly RaycastHit[] cameraCastHits = new RaycastHit[32];
@@ -102,13 +103,27 @@ void Update()
 {
     if (current == null)
     {
-        nearby = FindNearbyVehicle();
+        // Door markers take priority. Vehicles with configured doors are not
+        // enterable from their body; vehicles without door markers retain the
+        // current proximity-based interaction until they are configured later.
+        nearbyDoor = FindNearbyDoor();
+        nearby = nearbyDoor != null
+            ? nearbyDoor.vehicle
+            : FindNearbyVehicle();
 
         if (nearby != null && Input.GetKeyDown(interactKey))
-            Enter(nearby);
+        {
+            if (nearbyDoor != null)
+                Enter(nearby, nearbyDoor.seatPointOverride);
+            else
+                Enter(nearby, null);
+        }
     }
     else
     {
+        nearby = null;
+        nearbyDoor = null;
+
         // Vehicle driving controls.
         current.SetInput(
             Input.GetAxis("Vertical"),
@@ -269,6 +284,27 @@ void LateUpdate()
 
 // ---------------- Finding a Vehicle ----------------
 
+VehicleDoor FindNearbyDoor()
+{
+    VehicleDoor best = null;
+    float bestDist = enterRange;
+
+    foreach (VehicleDoor door in VehicleDoor.All)
+    {
+        if (door == null || !door.CanEnterAsDriver)
+            continue;
+
+        float distance = door.DistanceToPoint(transform.position);
+        if (distance < bestDist)
+        {
+            best = door;
+            bestDist = distance;
+        }
+    }
+
+    return best;
+}
+
 Vehicle FindNearbyVehicle()
 {
     Vehicle best = null;
@@ -276,7 +312,7 @@ Vehicle FindNearbyVehicle()
 
     foreach (Vehicle v in Vehicle.All)
     {
-        if (v == null || v.HasDriver)
+        if (v == null || v.HasDriver || VehicleDoor.HasAnyDoorFor(v))
             continue;
 
         // Measure from the nearest physical collider, not just the root pivot.
@@ -295,7 +331,7 @@ Vehicle FindNearbyVehicle()
 
 // ---------------- Enter Vehicle ----------------
 
-void Enter(Vehicle v)
+void Enter(Vehicle v, Transform seatPointOverride)
 {
     if (!v.TryReserve())
         return;
@@ -346,9 +382,9 @@ void Enter(Vehicle v)
     SetPlayerPhysics(false);
     SetPlayerVisible(false);
 
-    Transform seat = v.seatPoint != null
-        ? v.seatPoint
-        : v.transform;
+    Transform seat = seatPointOverride != null
+        ? seatPointOverride
+        : (v.seatPoint != null ? v.seatPoint : v.transform);
 
     transform.SetParent(seat, true);
     transform.localPosition = Vector3.zero;
@@ -667,6 +703,8 @@ void OnGUI()
         text = message;
     else if (current != null)
         text = $"[{interactKey}] Exit    [Space] Handbrake";
+    else if (nearbyDoor != null)
+        text = $"[{interactKey}] Enter Driver Door";
     else if (nearby != null)
         text = $"[{interactKey}] Enter";
 
