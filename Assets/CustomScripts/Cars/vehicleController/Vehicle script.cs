@@ -407,18 +407,11 @@ public class Vehicle : MonoBehaviour
 
         CurrentGear = Mathf.Clamp(CurrentGear, 1, gearCount);
         float currentRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
-        float topRatio = Mathf.Max(0.1f, forwardGearRatios[gearCount - 1]);
+        float totalRatio = currentRatio * Mathf.Max(0.1f, finalDriveRatio);
 
-        // Calibrate every gear against the configured vehicle top speed. This means
-        // redline in top gear occurs near maxSpeedKph, not at an arbitrary fraction
-        // of speed that can make the engine scream long before the car is fast.
-        float redlineSpeedThisGear = maxSpeedKph * topRatio / currentRatio;
-        float roadRpm = idleRpm + Mathf.Clamp01(speedKph / Mathf.Max(1f, redlineSpeedThisGear))
-            * (redlineRpm - idleRpm);
-
-        // Driven-wheel RPM lets the engine rise during wheelspin/drifts even when
-        // road speed is low. Normal rolling wheel RPM tracks roadRpm; excess wheel
-        // RPM is treated as slip, rather than forcing the engine to stay at redline.
+        // Estimate engine RPM from driven-wheel rotation and the actual selected
+        // gear/final-drive ratios. Maximum speed is a separate limiter; it no longer
+        // artificially dictates where the engine reaches redline.
         float drivenWheelRpm = 0f;
         int drivenWheelCount = 0;
         if (wheelColliders != null)
@@ -434,26 +427,27 @@ public class Vehicle : MonoBehaviour
             }
         }
 
-        float wheelspinRpm = roadRpm;
+        float wheelRpm;
         if (drivenWheelCount > 0)
         {
-            drivenWheelRpm /= drivenWheelCount;
+            wheelRpm = drivenWheelRpm / drivenWheelCount;
+        }
+        else
+        {
+            // Fallback estimate for configurations without valid driven wheels.
             float circumference = 2f * Mathf.PI * Mathf.Max(0.05f, wheelRadius);
-            float wheelRpmAtRedline = (redlineSpeedThisGear / 3.6f) / circumference * 60f;
-            if (wheelRpmAtRedline > 1f)
-            {
-                float wheelRpmEstimate = idleRpm
-                    + Mathf.Clamp01(drivenWheelRpm / wheelRpmAtRedline)
-                    * (redlineRpm - idleRpm);
-                wheelspinRpm = Mathf.Max(roadRpm, wheelRpmEstimate);
-            }
+            wheelRpm = (speedKph / 3.6f) / circumference * 60f;
         }
 
+        float coupledRpm = Mathf.Max(idleRpm, wheelRpm * totalRatio);
         float clutchBlend = Mathf.Clamp01(speedKph / Mathf.Max(0.1f, clutchEngagementSpeed));
         float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
-        float targetRpm = Mathf.Lerp(freeRevRpm, roadRpm, clutchBlend);
-        // Once the clutch is engaged, wheelspin can raise RPM above road-speed RPM.
-        targetRpm = Mathf.Max(targetRpm, wheelspinRpm);
+        float targetRpm = Mathf.Lerp(freeRevRpm, coupledRpm, clutchBlend);
+
+        // At high wheelspin, driven-wheel RPM can rise faster than vehicle speed.
+        // Preserve that signal while the clutch is engaged, bounded by engine redline.
+        if (drivenWheelCount > 0 && clutchBlend > 0f)
+            targetRpm = Mathf.Max(targetRpm, coupledRpm);
         if (shiftTimer > 0f)
             targetRpm = Mathf.Max(idleRpm, targetRpm * 0.72f);
 
