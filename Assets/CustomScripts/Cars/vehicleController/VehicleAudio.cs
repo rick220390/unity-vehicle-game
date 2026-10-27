@@ -218,19 +218,42 @@ public class VehicleAudio : MonoBehaviour
             ? Mathf.Clamp01(Mathf.Abs(vehicle.Throttle))
             : 0f;
 
-        // Detect the transition from accelerator pressed to released once,
-        // before throttleWasApplied is updated later in this method.
+        // Detect the accelerator edge independently of the rev/gear audio mode.
+        // Capture RPM BEFORE the engine model starts falling, so the deceleration
+        // recording can begin at the matching point in its high-to-low sweep.
         bool throttleReleased = engineRunning && throttleWasApplied && throttle <= 0.08f;
-        if (throttleReleased && engineDeceleration != null)
+        bool throttlePressed = engineRunning && throttle > 0.12f && !throttleWasApplied;
+        float rpmAtRelease = Mathf.Clamp01(simulatedRpm);
+
+        if (throttleReleased)
         {
-            decelerationSource.Stop();
-            decelerationSource.clip = engineDeceleration;
-            decelerationSource.loop = false;
-            decelerationSource.Play();
+            // The ramp and peak sounds must not mask or race the release sound.
+            if (revPlaybackSource != null)
+                revPlaybackSource.Stop();
+            if (peakRevSource != null)
+                peakRevSource.Stop();
+            revRampStarted = false;
+            revRampElapsed = 0f;
+            peakRevElapsed = 0f;
+
+            if (engineDeceleration != null && decelerationSource != null)
+            {
+                decelerationSource.Stop();
+                decelerationSource.clip = engineDeceleration;
+                decelerationSource.loop = false;
+                // A high-to-low recording starts at the beginning for high RPM,
+                // and later in the recording for lower RPM. Clamp away from the
+                // very end so a brief release still produces audible sound.
+                float startTime = (1f - rpmAtRelease) * engineDeceleration.length;
+                decelerationSource.time = Mathf.Clamp(startTime, 0f,
+                    Mathf.Max(0f, engineDeceleration.length - 0.08f));
+                decelerationSource.volume = decelerationVolume;
+                decelerationSource.Play();
+            }
         }
 
         // Reapplying throttle cuts the falling-RPM recording cleanly.
-        if (throttle > 0.12f && decelerationSource.isPlaying)
+        if (throttlePressed && decelerationSource != null && decelerationSource.isPlaying)
             decelerationSource.Stop();
 
         float speedKph = vehicle != null ? vehicle.Speed * 3.6f : 0f;
@@ -258,7 +281,7 @@ public class VehicleAudio : MonoBehaviour
             // Finish the rising-RPM recording, then hold peak revs briefly before
             // shifting. Clamp the wait so inspector values from older tuning do
             // not make the gearbox feel stuck in one gear.
-            float peakHoldSeconds = Mathf.Clamp(gearShiftIntervalSeconds, 0.75f, 1.4f);
+            float peakHoldSeconds = Mathf.Max(0.25f, gearShiftIntervalSeconds);
             if (simulateGearShifts && !revSoundIsLoop && !stationary &&
                 simulatedRpm >= shiftRpm &&
                 peakRevSource != null && peakRevSource.isPlaying &&
@@ -333,9 +356,8 @@ public class VehicleAudio : MonoBehaviour
         // Let the deceleration recording stand out instead of being masked by idle audio.
         if (decelerationSource != null)
         {
-            // The recorded deceleration transient is naturally prominent; keep
-            // the inspector slider useful without letting it overpower the engine.
-            decelerationSource.volume = decelerationVolume * 0.45f;
+            // Apply the Inspector value directly; don't silently scale it down.
+            decelerationSource.volume = decelerationVolume;
             if (decelerationSource.isPlaying)
                 targetIdleVolume *= idleVolumeDuringDeceleration;
         }
@@ -402,20 +424,17 @@ public class VehicleAudio : MonoBehaviour
                     RestartRevClip(revPitchAtIdle);
                 }
 
-                throttleWasApplied = throttle > 0.12f;
             }
             else
             {
                 // Legacy one-shot mode: one clip per throttle press.
-                bool throttlePressed = throttle > 0.12f && !throttleWasApplied;
                 if (throttlePressed)
                     RestartRevClip(Mathf.Lerp(revPitchAtIdle, revPitchAtFullThrottle, simulatedRpm));
-                throttleWasApplied = throttle > 0.12f;
             }
         }
-        else
-        {
-            throttleWasApplied = false;
-        }
+
+        // Always update the edge detector, regardless of which clips are assigned
+        // or which audio mode is selected. This keeps throttle release reliable.
+        throttleWasApplied = engineRunning && throttle > 0.12f;
     }
 }
