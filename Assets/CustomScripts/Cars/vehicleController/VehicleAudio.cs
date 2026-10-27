@@ -846,4 +846,10 @@ public class VehicleAudio : MonoBehaviour
         // Keep grain phases alive across the generated stream's loop point.
     }
 
+    private void OnDestroy()
+    {
+        if (granularStreamClip != null)
+            Destroy(granularStreamClip);
+    }
+
 }
