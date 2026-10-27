@@ -35,11 +35,13 @@ public class Vehicle : MonoBehaviour
     [Min(0.1f)] public float engineRpmResponse = 4f;
     [Min(0.1f)] public float clutchEngagementSpeed = 8f;
     [Min(100f)] public float motorTorque = 2600f;
-    [Min(500f)] public float maxMotorTorqueAtLowSpeed = 2200f;
+    [Tooltip("Caps delivered wheel torque at very low road speeds. The cap blends out as the clutch fully engages. Set to 0 to disable the cap.")]
+    [Min(0f)] public float maxMotorTorqueAtLowSpeed = 2200f;
     [Min(1f)] public float maxSpeedKph = 150f;
     [Min(1f)] public float maxReverseSpeedKph = 30f;
     [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
+    [Tooltip("Engine-braking torque in Nm while coasting, multiplied through the current gear ratio. Set to 0 to disable engine braking.")]
     [Min(0f)] public float engineBrakeTorque = 0f;
     [Tooltip("Rolling resistance while coasting. Keep this low so gravity can accelerate the car down slopes.")]
     [Min(0f)] public float coastResistanceAcceleration = 0.04f;
@@ -266,9 +268,8 @@ public class Vehicle : MonoBehaviour
             targetBrake = Mathf.Abs(targetThrottle) * serviceBrakeTorque;
             targetThrottle = 0f;
         }
-        // With the accelerator released, do not apply brake torque.
-        // WheelCollider engine-braking torque can hold the car on a slope and
-        // prevent gravity from rolling it backwards naturally.
+        // Engine braking is applied as a separate drivetrain force below, rather
+        // than WheelCollider brake torque, so it does not act like a parking brake.
 
         if (HasDriver && Handbrake)
             targetBrake = Mathf.Max(targetBrake, handbrakeTorque);
@@ -281,9 +282,8 @@ public class Vehicle : MonoBehaviour
             appliedSteer, HasDriver ? Steer : 0f,
             1f - Mathf.Exp(-steeringResponse * dt));
 
-        // Add mild rolling resistance and aerodynamic drag while coasting.
-        // This slows the car on level ground without applying WheelCollider
-        // brake torque that can pin it in place on a slope.
+        // Coasting resistance, aerodynamic drag and configurable engine braking.
+        // Engine braking only acts while moving; it cannot hold the car stationary.
         if (Mathf.Abs(targetThrottle) < 0.05f &&
             !(HasDriver && Handbrake) &&
             AnyWheelGrounded())
@@ -294,6 +294,19 @@ public class Vehicle : MonoBehaviour
                 Vector3 dragAcceleration =
                     -planarVelocity.normalized * coastResistanceAcceleration
                     -planarVelocity * coastAirDrag;
+
+                if (engineBrakeTorque > 0f && Mathf.Abs(forwardSpeed) > 0.5f && rb.mass > 0.01f)
+                {
+                    float ratio = 1f;
+                    if (forwardGearRatios != null && forwardGearRatios.Length > 0)
+                        ratio = Mathf.Max(0.1f, forwardGearRatios[Mathf.Clamp(CurrentGear - 1, 0, forwardGearRatios.Length - 1)]);
+
+                    float engineBrakeAcceleration = engineBrakeTorque * ratio *
+                        Mathf.Max(1f, finalDriveRatio) * 0.22f /
+                        (Mathf.Max(0.05f, wheelRadius) * rb.mass);
+                    dragAcceleration -= transform.forward * Mathf.Sign(forwardSpeed) * engineBrakeAcceleration;
+                }
+
                 rb.AddForce(dragAcceleration, ForceMode.Acceleration);
             }
         }
@@ -462,7 +475,18 @@ public class Vehicle : MonoBehaviour
         float gearboxMultiplier = ratio * finalDriveRatio;
         float shiftCut = shiftTimer > 0f ? 0.18f : 1f;
         float lowSpeedClutch = Mathf.Lerp(0.55f, 1f, Mathf.Clamp01(Speed / Mathf.Max(0.1f, clutchEngagementSpeed)));
-        return throttle * motorTorque * torqueCurve * gearboxMultiplier * 0.22f * shiftCut * lowSpeedClutch;
+        float wheelTorque = throttle * motorTorque * torqueCurve * gearboxMultiplier * 0.22f * shiftCut * lowSpeedClutch;
+
+        // Limit delivered wheel torque at very low speed, then blend the cap out
+        // as the clutch engages. Read every physics step for live tuning/upgrades.
+        if (maxMotorTorqueAtLowSpeed > 0f)
+        {
+            float lowSpeedBlend = 1f - Mathf.Clamp01(Speed / Mathf.Max(0.1f, clutchEngagementSpeed));
+            float lowSpeedCap = Mathf.Lerp(Mathf.Abs(wheelTorque), maxMotorTorqueAtLowSpeed, lowSpeedBlend);
+            wheelTorque = Mathf.Sign(wheelTorque) * Mathf.Min(Mathf.Abs(wheelTorque), lowSpeedCap);
+        }
+
+        return wheelTorque;
     }
 
     private void DriveFallback()
