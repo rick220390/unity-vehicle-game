@@ -51,6 +51,23 @@ private Transform originalParent;
 private Vector3 originalLocalScale;
 private Rigidbody rb;
 
+private struct BehaviourEnabledState
+{
+    public MonoBehaviour behaviour;
+    public bool wasEnabled;
+
+    public BehaviourEnabledState(MonoBehaviour behaviour, bool wasEnabled)
+    {
+        this.behaviour = behaviour;
+        this.wasEnabled = wasEnabled;
+    }
+}
+
+private readonly List<BehaviourEnabledState> disabledBehaviourStates =
+    new List<BehaviourEnabledState>();
+private bool invectorCameraWasEnabled;
+private bool playerRigidbodyWasKinematic;
+
 private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
 
@@ -291,14 +308,38 @@ void Enter(Vehicle v)
 
     originalParent = transform.parent;
     originalLocalScale = transform.localScale;
+    playerRigidbodyWasKinematic = rb != null && rb.isKinematic;
 
-    // Disable Invector character movement while driving.
-    foreach (MonoBehaviour m in disableWhileDriving)
+    // Remember each component's original state. Some components may have been
+    // intentionally disabled before entering, so we must not blindly enable all
+    // of them again when the player exits.
+    disabledBehaviourStates.Clear();
+    if (disableWhileDriving != null)
     {
-        if (m != null)
+        foreach (MonoBehaviour m in disableWhileDriving)
+        {
+            if (m == null)
+                continue;
+
+            bool alreadyTracked = false;
+            foreach (BehaviourEnabledState state in disabledBehaviourStates)
+            {
+                if (state.behaviour == m)
+                {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+
+            if (!alreadyTracked)
+                disabledBehaviourStates.Add(
+                    new BehaviourEnabledState(m, m.enabled));
+
             m.enabled = false;
+        }
     }
 
+    invectorCameraWasEnabled = invectorCam != null && invectorCam.enabled;
     if (invectorCam != null)
         invectorCam.enabled = false;
 
@@ -348,18 +389,28 @@ void TryExit()
     SetPlayerVisible(true);
     SetPlayerPhysics(true);
 
-    // Restore Invector character movement.
-    foreach (MonoBehaviour m in disableWhileDriving)
-    {
-        if (m != null)
-            m.enabled = true;
-    }
+    // Restore exactly the component states that existed before entering.
+    RestoreDrivingComponents();
 
     if (invectorCam != null)
-        invectorCam.enabled = true;
+        invectorCam.enabled = invectorCameraWasEnabled;
 
-    current.Release();
+    Vehicle exitedVehicle = current;
     current = null;
+
+    if (exitedVehicle != null)
+        exitedVehicle.Release();
+}
+
+void RestoreDrivingComponents()
+{
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour != null)
+            state.behaviour.enabled = state.wasEnabled;
+    }
+
+    disabledBehaviourStates.Clear();
 }
 
 bool TryFindExitPosition(Vehicle v, out Vector3 position)
@@ -551,7 +602,7 @@ void SetPlayerPhysics(bool active)
 
         if (rb != null)
         {
-            rb.isKinematic = false;
+            rb.isKinematic = playerRigidbodyWasKinematic;
             ZeroVelocity();
         }
     }
