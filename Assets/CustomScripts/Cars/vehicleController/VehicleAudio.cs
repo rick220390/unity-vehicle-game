@@ -385,6 +385,13 @@ public class VehicleAudio : MonoBehaviour
             revRampElapsed = 0f;
             revRampStarted = false;
         }
+        else if (engineRev != null && revTailLooping && revPlaybackSource != null &&
+                 revPlaybackSource.isPlaying && loopSoundsStarted)
+        {
+            // Loop only the steady high-RPM tail, not the entire recorded sweep.
+            if (revPlaybackSource.time >= engineRev.length - 0.03f)
+                revPlaybackSource.time = Mathf.Clamp(peakLoopStartSeconds, 0f, Mathf.Max(0f, engineRev.length - 0.05f));
+        }
         else if (engineRev != null && revRampStarted && loopSoundsStarted)
         {
             // Use the recording's actual duration as the hand-off gate. This
@@ -415,11 +422,13 @@ public class VehicleAudio : MonoBehaviour
                     peakRevElapsed = 0f;
                     peakRevSource.Play();
                 }
-                else if (enginePeakRev == null && engineRev != null)
+                else if (engineRev != null)
                 {
+                    // Keep a fallback engine sound running even if a peak clip is
+                    // assigned but the current RPM has not reached the limiter.
+                    revPlaybackSource.Stop();
                     revPlaybackSource.loop = false;
                     revPlaybackSource.time = Mathf.Clamp(peakLoopStartSeconds, 0f, Mathf.Max(0f, engineRev.length - 0.05f));
-                    revPlaybackSource.loop = true;
                     revTailLooping = true;
                     revRampStarted = false;
                     revPlaybackSource.Play();
