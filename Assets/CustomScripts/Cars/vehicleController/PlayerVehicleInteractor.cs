@@ -14,6 +14,8 @@ public KeyCode handbrakeKey = KeyCode.Space;
 [Header("Enter / Exit")]
 public float enterRange = 3f;
 public float maxExitSpeed = 8f;
+[Tooltip("Extra space kept between the car body and an automatically chosen fallback exit position.")]
+[Min(0.1f)] public float fallbackExitClearance = 0.8f;
 
 [Header("Disable while driving (drag in!)")]
 [Tooltip("Drag in vThirdPersonInput, vThirdPersonController, and vThirdPersonCamera.")]
@@ -43,7 +45,6 @@ private Rigidbody rb;
 
 private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
-private readonly Collider[] overlap = new Collider[16];
 
 private Vehicle nearby;
 private string message;
@@ -236,7 +237,11 @@ void TryExit()
         return;
     }
 
-    Vector3 pos = FindExitPosition(current);
+    if (!TryFindExitPosition(current, out Vector3 pos))
+    {
+        Say("No safe place to exit here");
+        return;
+    }
 
     Vector3 flatFwd = Vector3.ProjectOnPlane(
         current.transform.forward,
@@ -270,44 +275,152 @@ void TryExit()
     current = null;
 }
 
-Vector3 FindExitPosition(Vehicle v)
+bool TryFindExitPosition(Vehicle v, out Vector3 position)
 {
+    position = Vector3.zero;
+
+    // Prefer the exit points already configured on this vehicle.
+    // These remain the authoritative positions when they are clear.
     if (v.exitPoints != null)
     {
-        foreach (Transform p in v.exitPoints)
+        foreach (Transform exitPoint in v.exitPoints)
         {
-            if (p != null && IsSpotFree(p.position, v))
-                return p.position;
+            if (exitPoint == null)
+                continue;
+
+            if (IsSpotFree(exitPoint.position, v))
+            {
+                position = exitPoint.position;
+                return true;
+            }
         }
     }
 
-    // Fallback position above the roof.
-    Vector3 basePos = v.seatPoint != null
-        ? v.seatPoint.position
-        : v.transform.position;
+    // If configured exits are blocked, try positions around the vehicle's
+    // physical footprint rather than placing the player above the roof.
+    float halfWidth = GetVehicleHalfExtent(v, v.transform.right);
+    float halfLength = GetVehicleHalfExtent(v, v.transform.forward);
+    float clearance = Mathf.Max(0.1f, fallbackExitClearance);
 
-    return basePos + Vector3.up * 2.5f;
+    // Use the height of the configured exit points when available. This keeps
+    // fallback placements aligned with the intended standing level.
+    float exitHeight = v.transform.position.y;
+    if (v.exitPoints != null)
+    {
+        foreach (Transform exitPoint in v.exitPoints)
+        {
+            if (exitPoint != null)
+            {
+                exitHeight = exitPoint.position.y;
+                break;
+            }
+        }
+    }
+
+    Vector3 right = Vector3.ProjectOnPlane(v.transform.right, Vector3.up).normalized;
+    Vector3 forward = Vector3.ProjectOnPlane(v.transform.forward, Vector3.up).normalized;
+
+    if (right.sqrMagnitude < 0.001f)
+        right = Vector3.right;
+    if (forward.sqrMagnitude < 0.001f)
+        forward = Vector3.forward;
+
+    Vector3 origin = v.transform.position;
+    origin.y = exitHeight;
+
+    Vector3[] candidates =
+    {
+        origin + right * (halfWidth + clearance),
+        origin - right * (halfWidth + clearance),
+        origin + forward * (halfLength + clearance),
+        origin - forward * (halfLength + clearance)
+    };
+
+    foreach (Vector3 candidate in candidates)
+    {
+        if (!IsSpotFree(candidate, v))
+            continue;
+
+        position = candidate;
+        return true;
+    }
+
+    // Never force an exit into an unchecked roof position or an occupied space.
+    return false;
+}
+
+float GetVehicleHalfExtent(Vehicle v, Vector3 axis)
+{
+    Collider[] colliders = v.GetComponentsInChildren<Collider>(true);
+    Vector3 origin = v.transform.position;
+    axis = Vector3.ProjectOnPlane(axis, Vector3.up).normalized;
+
+    if (axis.sqrMagnitude < 0.001f)
+        return 1.5f;
+
+    float maximum = 0f;
+
+    foreach (Collider vehicleCollider in colliders)
+    {
+        if (vehicleCollider == null ||
+            !vehicleCollider.enabled ||
+            !vehicleCollider.gameObject.activeInHierarchy ||
+            vehicleCollider.isTrigger ||
+            vehicleCollider is WheelCollider)
+            continue;
+
+        Bounds bounds = vehicleCollider.bounds;
+        Vector3 center = bounds.center;
+        Vector3 extents = bounds.extents;
+
+        // Project all corners of the collider's world-space bounds onto the
+        // car's local forward/right direction. This works with rotated cars too.
+        for (int x = -1; x <= 1; x += 2)
+        {
+            for (int y = -1; y <= 1; y += 2)
+            {
+                for (int z = -1; z <= 1; z += 2)
+                {
+                    Vector3 corner = center + Vector3.Scale(
+                        extents,
+                        new Vector3(x, y, z)
+                    );
+
+                    float projectedDistance = Mathf.Abs(
+                        Vector3.Dot(corner - origin, axis)
+                    );
+
+                    maximum = Mathf.Max(maximum, projectedDistance);
+                }
+            }
+        }
+    }
+
+    // A sensible fallback for prototype vehicles without physical colliders.
+    return maximum > 0.01f ? maximum : 1.5f;
 }
 
 bool IsSpotFree(Vector3 p, Vehicle v)
 {
-    int n = Physics.OverlapCapsuleNonAlloc(
+    // This runs only when the player requests to exit, so an allocating query
+    // is fine and avoids silently truncating results around complex vehicles.
+    Collider[] nearbyColliders = Physics.OverlapCapsule(
         p + Vector3.up * 0.5f,
         p + Vector3.up * 1.5f,
         0.3f,
-        overlap,
         ~0,
         QueryTriggerInteraction.Ignore
     );
 
-    for (int i = 0; i < n; i++)
+    foreach (Collider c in nearbyColliders)
     {
-        Collider c = overlap[i];
+        if (c == null)
+            continue;
 
         if (c.GetComponentInParent<Vehicle>() == v)
             continue;
 
-        if (c.transform.IsChildOf(transform))
+        if (c.transform == transform || c.transform.IsChildOf(transform))
             continue;
 
         return false;
