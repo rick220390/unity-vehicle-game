@@ -244,9 +244,13 @@ public class VehicleAudio : MonoBehaviour
             simulatedRpm = Mathf.MoveTowards(
                 simulatedRpm, 1f, rpmRiseResponse * throttle * dt);
 
+            // Do not shift while the rising-RPM recording is still playing.
+            // Let the high-RPM loop run for the configured interval first, so
+            // every gear has a clear pull-up and a sustained peak before shifting.
             if (simulateGearShifts && !revSoundIsLoop && !stationary &&
                 simulatedRpm >= shiftRpm &&
-                timeSinceLastGearShift >= gearShiftIntervalSeconds &&
+                peakRevSource != null && peakRevSource.isPlaying &&
+                peakRevSource.time >= gearShiftIntervalSeconds &&
                 simulatedGear < Mathf.Max(2, simulatedGears))
             {
                 simulatedGear++;
@@ -330,8 +334,14 @@ public class VehicleAudio : MonoBehaviour
         if (revPlaybackSource != null)
         {
             revPlaybackSource.volume = revVolume;
-            revPlaybackSource.pitch = Mathf.MoveTowards(
-                revPlaybackSource.pitch, targetRevPitch, pitchResponse * dt);
+            // Engine Rev is a recorded low-to-high RPM sweep. Let the recording
+            // provide its own rise instead of pitching it up a second time in code.
+            // Only adjust pitch when it is idle, ready for the next pull.
+            if (!revPlaybackSource.isPlaying)
+            {
+                revPlaybackSource.pitch = Mathf.MoveTowards(
+                    revPlaybackSource.pitch, targetRevPitch, pitchResponse * dt);
+            }
         }
         if (peakRevSource != null)
         {
