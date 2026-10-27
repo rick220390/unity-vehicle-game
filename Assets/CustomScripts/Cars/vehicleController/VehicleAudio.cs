@@ -52,8 +52,12 @@ public class VehicleAudio : MonoBehaviour
     [Range(2, 8)] public int simulatedGears = 5;
     [Range(0.5f, 0.99f)] public float shiftRpm = 0.88f;
     [Range(0.1f, 0.8f)] public float rpmAfterShift = 0.48f;
-    [Tooltip("Minimum time between simulated gear changes. Increase this for slower, more noticeable shifts.")]
+    [Tooltip("Legacy fallback only. With a Vehicle component, actual drivetrain shifts control the audio.")]
     [Min(0.25f)] public float gearShiftIntervalSeconds = 1.8f;
+    [Tooltip("Playback speed for the gear-change sound. Lower values make the shift sound longer and less rushed.")]
+    [Range(0.4f, 1.5f)] public float gearChangePitch = 0.75f;
+    [Tooltip("RPM fraction at which the recorded rev sound transitions into its sustained tail.")]
+    [Range(0.5f, 0.99f)] public float sustainedRevStartRpm = 0.72f;
     [Min(0.1f)] public float rpmRiseResponse = 0.8f;
     [Min(0.1f)] public float rpmFallResponse = 0.55f;
     [Tooltip("Start time in seconds of the steady high-RPM tail in Engine Rev. At a standstill, the clip plays once from the beginning then loops only this tail. Adjust this to where the sound has reached maximum revs.")]
@@ -81,6 +85,8 @@ public class VehicleAudio : MonoBehaviour
     private float timeSinceLastGearShift = 100f;
     private float peakRevElapsed;
     private int simulatedGear = 1;
+    private bool previousVehicleShifting;
+    private bool revTailLooping;
 
     private void Awake()
     {
@@ -175,6 +181,8 @@ public class VehicleAudio : MonoBehaviour
         idleSource.Stop();
         revSource.Stop();
         revPlaybackSource.Stop();
+        revPlaybackSource.loop = false;
+        revTailLooping = false;
         peakRevSource.Stop();
         decelerationSource.Stop();
         simulatedRpm = 0f;
@@ -184,6 +192,8 @@ public class VehicleAudio : MonoBehaviour
         throttleWasApplied = false;
         revRampStarted = false;
         revRampElapsed = 0f;
+        revTailLooping = false;
+        previousVehicleShifting = false;
         idleSource.volume = 0f;
         revSource.volume = 0f;
 
@@ -210,6 +220,7 @@ public class VehicleAudio : MonoBehaviour
         revPlaybackSource.Stop();
         revPlaybackSource.clip = engineRev;
         revPlaybackSource.loop = false;
+        revTailLooping = false;
         revPlaybackSource.time = 0f;
         // Keep the recorded acceleration sweep at a steady playback rate so its
         // own recorded low-to-high RPM rise is preserved.
@@ -240,6 +251,11 @@ public class VehicleAudio : MonoBehaviour
                 revPlaybackSource.Stop();
             if (peakRevSource != null)
                 peakRevSource.Stop();
+            if (revPlaybackSource != null)
+            {
+                revPlaybackSource.loop = false;
+                revTailLooping = false;
+            }
             revRampStarted = false;
             revRampElapsed = 0f;
             peakRevElapsed = 0f;
@@ -297,26 +313,30 @@ public class VehicleAudio : MonoBehaviour
                 // Follow real gearbox changes rather than running an independent
                 // audio-only gearbox. This keeps the rev ramp and peak loop aligned
                 // with the speed/gear configured on the Vehicle component.
-                if (simulateGearShifts && !revSoundIsLoop &&
-                    vehicle.CurrentGear != simulatedGear &&
-                    timeSinceLastGearShift >= 0.05f)
+                bool actualGearChanged = vehicle.CurrentGear != simulatedGear;
+                bool actualShiftStarted = vehicle.IsShifting && !previousVehicleShifting;
+                if (actualGearChanged)
                 {
                     simulatedGear = vehicle.CurrentGear;
                     timeSinceLastGearShift = 0f;
                     peakRevElapsed = 0f;
 
-                    if (engineRev != null && loopSoundsStarted)
+                    if (engineRev != null && loopSoundsStarted && simulateGearShifts && !revSoundIsLoop)
                     {
                         peakRevSource.Stop();
                         RestartRevClip(revPitchAtIdle);
-                        if (gearChange != null)
-                            oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
                     }
                 }
-                else
+
+                // Play the shift transient only when the real drivetrain enters its
+                // shift window, not from an independent audio-only gear timer.
+                if (actualShiftStarted && gearChange != null && loopSoundsStarted)
                 {
-                    simulatedGear = vehicle.CurrentGear;
+                    oneShotSource.pitch = gearChangePitch;
+                    oneShotSource.PlayOneShot(gearChange, gearChangeVolume);
+                    oneShotSource.pitch = 1f;
                 }
+                previousVehicleShifting = vehicle.IsShifting;
             }
             else
             {
@@ -334,7 +354,10 @@ public class VehicleAudio : MonoBehaviour
                 simulatedRpm, 0f, rpmFallResponse * dt);
 
             if (vehicle != null)
+            {
                 simulatedGear = vehicle.CurrentGear;
+                previousVehicleShifting = vehicle.IsShifting;
+            }
             else if (timeSinceLastGearShift >= Mathf.Max(0.25f, gearShiftIntervalSeconds) &&
                      simulatedGear > 1 &&
                      (speedFactor < 0.35f || (throttle <= 0.08f && speedFactor < 0.55f)))
@@ -354,6 +377,8 @@ public class VehicleAudio : MonoBehaviour
         {
             if (revPlaybackSource.isPlaying)
                 revPlaybackSource.Stop();
+            revPlaybackSource.loop = false;
+            revTailLooping = false;
             if (peakRevSource.isPlaying)
                 peakRevSource.Stop();
             peakRevElapsed = 0f;
@@ -377,18 +402,27 @@ public class VehicleAudio : MonoBehaviour
                 // high RPM, the peak recording fills the gap until the next
                 // simulated shift, including wheelspin where road speed is low.
                 // In top gear it remains the sound at maximum road speed.
-                bool highRpmLimiter = throttle >= 0.8f && simulatedRpm >= 0.96f;
+                bool highRpmLimiter = simulatedRpm >= 0.96f;
                 bool stationaryBurnout = stationary && vehicle != null &&
                                          vehicle.Handbrake && throttle >= 0.9f;
-                bool atTopSpeedInTopGear =
-                    simulatedGear >= Mathf.Max(2, simulatedGears) &&
-                    speedFactor >= 0.95f && throttle >= 0.9f;
 
+                // A short rev sweep must never leave the engine silent. If a
+                // dedicated peak clip is supplied, use it at the limiter; otherwise
+                // loop the steady tail of the acceleration recording.
                 if (enginePeakRev != null && !peakRevSource.isPlaying &&
-                    (highRpmLimiter || stationaryBurnout || atTopSpeedInTopGear))
+                    (highRpmLimiter || stationaryBurnout))
                 {
                     peakRevElapsed = 0f;
                     peakRevSource.Play();
+                }
+                else if (enginePeakRev == null && engineRev != null)
+                {
+                    revPlaybackSource.loop = false;
+                    revPlaybackSource.time = Mathf.Clamp(peakLoopStartSeconds, 0f, Mathf.Max(0f, engineRev.length - 0.05f));
+                    revPlaybackSource.loop = true;
+                    revTailLooping = true;
+                    revRampStarted = false;
+                    revPlaybackSource.Play();
                 }
             }
         }
@@ -398,9 +432,7 @@ public class VehicleAudio : MonoBehaviour
         bool highRpmLimiterActive = !revSoundIsLoop && simulateGearShifts &&
                                     throttle >= 0.8f && simulatedRpm >= 0.96f;
         bool allowPeakRev = highRpmLimiterActive ||
-                            (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f) ||
-                            (simulatedGear >= Mathf.Max(2, simulatedGears) &&
-                             speedFactor >= 0.95f && throttle >= 0.9f);
+                            (stationary && vehicle != null && vehicle.Handbrake && throttle >= 0.9f);
         if (engineRunning && loopSoundsStarted && enginePeakRev != null &&
             throttle > 0.08f && allowPeakRev && !revRampStarted &&
             (revPlaybackSource == null || !revPlaybackSource.isPlaying) &&
