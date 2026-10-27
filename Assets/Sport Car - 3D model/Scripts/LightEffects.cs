@@ -85,11 +85,11 @@ public class LightEffects : MonoBehaviour
             vehicle = GetComponentInChildren<Vehicle>(true);
 
         if (FL == null)
-            FL = FindDescendant("FrontLights");
+            FL = FindDescendant("FrontLights")?.gameObject;
         if (BL == null)
-            BL = FindDescendant("BrakeLights");
+            BL = FindDescendant("BrakeLights")?.gameObject;
         if (TL == null)
-            TL = FindDescendant("TailLights");
+            TL = FindDescendant("TailLights")?.gameObject;
 
         CacheHeadlights();
         CacheMainBeamLights();
