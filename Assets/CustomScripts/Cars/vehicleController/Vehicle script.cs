@@ -394,8 +394,14 @@ public class Vehicle : MonoBehaviour
         if (HasDriver && Handbrake)
             targetBrake = Mathf.Max(targetBrake, handbrakeTorque);
 
-        appliedThrottle = Mathf.MoveTowards(
-            appliedThrottle, targetThrottle, throttleResponse * dt);
+        // Cut engine drive torque promptly when the driver releases the accelerator.
+        // Smooth throttle application, but do not let residual positive throttle
+        // keep driving the car for several physics frames after the input returns to zero.
+        if (Mathf.Abs(targetThrottle) < 0.01f)
+            appliedThrottle = 0f;
+        else
+            appliedThrottle = Mathf.MoveTowards(
+                appliedThrottle, targetThrottle, throttleResponse * dt);
         appliedBrake = Mathf.MoveTowards(
             appliedBrake, targetBrake, brakeResponse * serviceBrakeTorque * dt);
         IsBraking = HasDriver && appliedBrake > 1f;
