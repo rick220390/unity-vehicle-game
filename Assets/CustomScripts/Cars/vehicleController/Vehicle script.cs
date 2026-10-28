@@ -94,6 +94,10 @@ public class Vehicle : MonoBehaviour
     public bool debugUsingWheelColliders;
 
     public bool HasDriver { get; private set; }
+    /// <summary>Whether an external system (for example the fuel tank) allows the engine to run.</summary>
+    public bool ExternalEngineEnabled { get; private set; } = true;
+    /// <summary>External multiplier for delivered engine power, useful for fuel and future damage systems.</summary>
+    public float ExternalEnginePowerMultiplier { get; private set; } = 1f;
     public float Throttle { get; private set; }
     public float Steer { get; private set; }
     public bool Handbrake { get; private set; }
@@ -305,6 +309,18 @@ public class Vehicle : MonoBehaviour
         Handbrake = handbrake;
     }
 
+    /// <summary>
+    /// Allows optional vehicle systems to control whether the engine can run and
+    /// how much power it can deliver without taking ownership of vehicle physics.
+    /// </summary>
+    public void SetExternalEngineState(bool engineEnabled, float powerMultiplier = 1f)
+    {
+        ExternalEngineEnabled = engineEnabled;
+        ExternalEnginePowerMultiplier = engineEnabled
+            ? Mathf.Clamp01(powerMultiplier)
+            : 0f;
+    }
+
     private void FixedUpdate()
     {
         debugThrottle = Throttle;
@@ -446,6 +462,14 @@ public class Vehicle : MonoBehaviour
         shiftCooldown = Mathf.Max(0f, shiftCooldown - dt);
         shiftTimer = Mathf.Max(0f, shiftTimer - dt);
 
+        if (!ExternalEngineEnabled)
+        {
+            EngineRpm = Mathf.MoveTowards(
+                EngineRpm, 0f, Mathf.Max(1f, engineRpmResponse * redlineRpm) * dt);
+            shiftTimer = 0f;
+            return;
+        }
+
         float throttle = HasDriver ? Mathf.Abs(Throttle) : 0f;
         float speedKph = Speed * 3.6f;
         int gearCount = forwardGearRatios != null ? forwardGearRatios.Length : 0;
@@ -565,7 +589,7 @@ public class Vehicle : MonoBehaviour
             wheelTorque = Mathf.Sign(wheelTorque) * Mathf.Min(Mathf.Abs(wheelTorque), lowSpeedCap);
         }
 
-        return wheelTorque;
+        return wheelTorque * ExternalEnginePowerMultiplier;
     }
 
     private void DriveFallback()
@@ -581,7 +605,7 @@ public class Vehicle : MonoBehaviour
         Vector3 velocity = GetVelocity();
         float forwardSpeed = Vector3.Dot(velocity, transform.forward);
         float lateralSpeed = Vector3.Dot(velocity, transform.right);
-        float throttle = HasDriver ? Throttle : 0f;
+        float throttle = HasDriver && ExternalEngineEnabled ? Throttle : 0f;
         bool opposingInput = Mathf.Abs(forwardSpeed) > 0.5f &&
                              Mathf.Abs(throttle) > 0.05f &&
                              Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
