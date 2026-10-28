@@ -609,16 +609,34 @@ public class Vehicle : MonoBehaviour
             return;
         }
 
-        // An upshift requires driver throttle. A downshift is allowed while coasting,
-        // so stopping or slowing the vehicle brings the transmission into the right gear.
+        // Gearbox speed fallback: treat maxSpeedKph as the approximate speed
+        // available at redline in the top gear. Ratio-proportional shift speeds keep
+        // the transmission moving even if a particular car's wheel radius or engine
+        // RPM estimate is imperfect. RPM remains the primary trigger.
+        float topGearRatio = Mathf.Max(0.1f, forwardGearRatios[gearCount - 1]);
+        float currentGearRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
+        float speedAtUpshiftRpm = Mathf.Max(1f, maxSpeedKph) *
+            topGearRatio / currentGearRatio *
+            (safeUpshiftRpm / safeRedline);
+        float speedAtDownshiftRpm = Mathf.Max(1f, maxSpeedKph) *
+            topGearRatio / currentGearRatio *
+            (safeDownshiftRpm / safeRedline);
+
+        bool speedRequestsUpshift = speedKph >= speedAtUpshiftRpm;
+        bool speedRequestsDownshift = speedKph <= speedAtDownshiftRpm;
+
+        debugShiftStatus = "RPM shift " + shiftRpm.ToString("0") +
+            " | upshift speed " + speedAtUpshiftRpm.ToString("0.0") + " km/h";
+
+        // An upshift requires driver throttle. A downshift is allowed while coasting.
+        // Either engine RPM or the ratio-derived road-speed estimate may request a shift.
         bool forcedRedlineUpshift = throttle >= 0.10f &&
-            CurrentGear < gearCount && shiftRpm >= safeRedline - 10f;
+            CurrentGear < gearCount &&
+            (shiftRpm >= safeRedline - 10f || speedRequestsUpshift);
         if (shiftCooldown > 0f && !forcedRedlineUpshift)
         {
-            // When slowing, don't make the driver wait for the entire cooldown if
-            // the current gear is clearly too tall for the road speed.
             bool urgentDownshift = CurrentGear > 1 &&
-                shiftRpm <= safeDownshiftRpm * 0.65f;
+                (shiftRpm <= safeDownshiftRpm * 0.65f || speedRequestsDownshift);
             if (!urgentDownshift)
             {
                 debugShiftStatus = "Shift cooldown";
@@ -626,19 +644,25 @@ public class Vehicle : MonoBehaviour
             }
         }
 
-        if (throttle >= 0.10f && CurrentGear < gearCount && shiftRpm >= safeUpshiftRpm)
+        if (throttle >= 0.10f && CurrentGear < gearCount &&
+            (shiftRpm >= safeUpshiftRpm || speedRequestsUpshift))
         {
-            debugShiftStatus = forcedRedlineUpshift
-                ? "Upshifting at redline (cooldown override)"
-                : "Upshifting";
+            debugShiftStatus = speedRequestsUpshift && shiftRpm < safeUpshiftRpm
+                ? "Upshifting from ratio-based speed fallback"
+                : forcedRedlineUpshift
+                    ? "Upshifting at redline (cooldown override)"
+                    : "Upshifting";
             BeginShift(CurrentGear + 1);
             debugCurrentGear = CurrentGear;
             debugShiftCooldownSeconds = shiftCooldown;
             debugShiftTimerSeconds = shiftTimer;
         }
-        else if (CurrentGear > 1 && shiftRpm <= safeDownshiftRpm && speedKph > 2f)
+        else if (CurrentGear > 1 && speedKph > 2f &&
+            (shiftRpm <= safeDownshiftRpm || speedRequestsDownshift))
         {
-            debugShiftStatus = "Downshifting";
+            debugShiftStatus = speedRequestsDownshift && shiftRpm > safeDownshiftRpm
+                ? "Downshifting from ratio-based speed fallback"
+                : "Downshifting";
             BeginShift(CurrentGear - 1);
             debugCurrentGear = CurrentGear;
             debugShiftCooldownSeconds = shiftCooldown;
@@ -648,10 +672,14 @@ public class Vehicle : MonoBehaviour
         {
             debugShiftStatus = "At highest configured gear";
         }
+        else if (CurrentGear >= gearCount)
+        {
+            debugShiftStatus = "At highest configured gear";
+        }
         else
         {
             debugShiftStatus = throttle >= 0.10f
-                ? "Waiting for road-speed RPM upshift threshold"
+                ? "Waiting for RPM/speed upshift threshold"
                 : "Coasting: waiting for downshift threshold";
         }
     }
