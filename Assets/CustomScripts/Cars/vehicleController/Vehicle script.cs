@@ -48,6 +48,8 @@ public class Vehicle : MonoBehaviour
     [Min(0f)] public float coastResistanceAcceleration = 0.04f;
     [Tooltip("Aerodynamic drag coefficient in 1/s. Applied whenever the vehicle is moving, including under throttle and braking. 0.008 gives about 0.22 m/s² drag at 100 km/h.")]
     [Min(0f)] public float coastAirDrag = 0.008f;
+    [Tooltip("Independent immediate chassis deceleration while the service brake is pressed, in m/s². Supplements WheelCollider brakes so stopping does not depend on tyre brake torque alone.")]
+    [Min(0f)] public float serviceBrakeDeceleration = 6f;
     [Min(0.1f)] public float throttleResponse = 3f;
     [Min(0.1f)] public float brakeResponse = 8f;
 
@@ -421,6 +423,19 @@ public class Vehicle : MonoBehaviour
         if (planarVelocity.sqrMagnitude > 0.0001f)
         {
             Vector3 resistanceAcceleration = -planarVelocity * coastAirDrag;
+
+            // Independent chassis-level service braking: do not rely solely on
+            // WheelCollider brakeTorque to create stopping force. Apply it in the
+            // same FixedUpdate as the brake input, with no response ramp or delay.
+            // This supplements normal wheel braking and protects against weak or
+            // misconfigured wheel brake response. Handbrake remains wheel-based.
+            if (targetBrake > 1f && serviceBrakeDeceleration > 0f)
+            {
+                float brakeStrength = Mathf.Clamp01(targetBrake /
+                    Mathf.Max(1f, serviceBrakeTorque));
+                resistanceAcceleration -= planarVelocity.normalized *
+                    (serviceBrakeDeceleration * brakeStrength);
+            }
 
             bool coasting = Mathf.Abs(targetThrottle) < 0.05f &&
                 targetBrake <= 1f &&
