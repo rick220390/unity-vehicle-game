@@ -122,6 +122,7 @@ public class Vehicle : MonoBehaviour
     public int CurrentGear { get; private set; } = 1;
     public bool IsShifting => shiftTimer > 0f;
     public float Speed => GetVelocity().magnitude;
+    public float ForwardSpeed => Vector3.Dot(GetVelocity(), transform.forward);
     public Collider BodyCollider { get; private set; }
 
     private Collider[] detectionColliders;
