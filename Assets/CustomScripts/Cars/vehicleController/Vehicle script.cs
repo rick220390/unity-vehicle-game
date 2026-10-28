@@ -114,6 +114,7 @@ public class Vehicle : MonoBehaviour
     public float ExternalEnginePowerMultiplier { get; private set; } = 1f;
     public float Throttle { get; private set; }
     public float Steer { get; private set; }
+    public float ServiceBrake { get; private set; }
     public bool Handbrake { get; private set; }
     /// <summary>True while the service brake or handbrake is being applied by the driver.</summary>
     public bool IsBraking { get; private set; }
@@ -312,15 +313,16 @@ public class Vehicle : MonoBehaviour
     {
         HasDriver = false;
         IsBraking = false;
-        SetInput(0f, 0f, false);
+        SetInput(0f, 0f, false, 0f);
         StopWheelTorque();
     }
 
-    public void SetInput(float throttle, float steer, bool handbrake = false)
+    public void SetInput(float throttle, float steer, bool handbrake = false, float serviceBrake = 0f)
     {
         Throttle = Mathf.Clamp(throttle, -1f, 1f);
         Steer = Mathf.Clamp(steer, -1f, 1f);
         Handbrake = handbrake;
+        ServiceBrake = Mathf.Clamp01(serviceBrake);
     }
 
     /// <summary>
@@ -360,9 +362,12 @@ public class Vehicle : MonoBehaviour
         float dt = Time.fixedDeltaTime;
         float speedKph = Speed * 3.6f;
         float targetThrottle = HasDriver ? Throttle : 0f;
-        float targetBrake = 0f;
+        float targetBrake = HasDriver ? ServiceBrake * serviceBrakeTorque : 0f;
 
-        // Opposite direction input first applies brakes; reverse engages only near a stop.
+        // A negative driving axis (for example S/down-arrow) brakes while the car
+        // is travelling forward. Once almost stopped, the same held input may
+        // engage reverse. A separate ServiceBrake signal also works independently
+        // of throttle, including when throttle and brake are pressed together.
         float forwardSpeed = Vector3.Dot(GetVelocity(), transform.forward);
         bool oppositeInput = Mathf.Abs(forwardSpeed) > 1.0f &&
                              Mathf.Abs(targetThrottle) > 0.05f &&
@@ -370,9 +375,18 @@ public class Vehicle : MonoBehaviour
 
         if (oppositeInput)
         {
-            targetBrake = Mathf.Abs(targetThrottle) * serviceBrakeTorque;
+            targetBrake = Mathf.Max(targetBrake, Mathf.Abs(targetThrottle) * serviceBrakeTorque);
             targetThrottle = 0f;
         }
+
+        // If the input caller uses the traditional shared reverse/brake axis,
+        // hold the brakes while moving forward, then allow reverse only at a crawl.
+        if (HasDriver && Throttle < -0.05f && forwardSpeed > 0.5f)
+        {
+            targetBrake = Mathf.Max(targetBrake, Mathf.Abs(Throttle) * serviceBrakeTorque);
+            targetThrottle = 0f;
+        }
+
         // Engine braking is applied as a separate drivetrain force below, rather
         // than WheelCollider brake torque, so it does not act like a parking brake.
 
@@ -492,7 +506,7 @@ public class Vehicle : MonoBehaviour
             return;
         }
 
-        float throttle = HasDriver ? Mathf.Abs(Throttle) : 0f;
+        float throttle = HasDriver && ServiceBrake < 0.01f ? Mathf.Abs(Throttle) : 0f;
         float speedKph = Speed * 3.6f;
         int gearCount = forwardGearRatios != null ? forwardGearRatios.Length : 0;
         if (gearCount == 0)
@@ -735,26 +749,29 @@ public class Vehicle : MonoBehaviour
         float forwardSpeed = Vector3.Dot(velocity, transform.forward);
         float lateralSpeed = Vector3.Dot(velocity, transform.right);
         float throttle = HasDriver && ExternalEngineEnabled ? Throttle : 0f;
+        bool serviceBraking = HasDriver && (ServiceBrake > 0.01f || (throttle < -0.05f && forwardSpeed > 0.5f));
         bool opposingInput = Mathf.Abs(forwardSpeed) > 0.5f &&
                              Mathf.Abs(throttle) > 0.05f &&
                              Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
-        IsBraking = HasDriver && (Handbrake || opposingInput);
+        IsBraking = HasDriver && (Handbrake || serviceBraking || opposingInput);
 
         if (HasDriver && Handbrake)
         {
             forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, fallbackBrakeDeceleration * dt);
         }
+        else if (serviceBraking || opposingInput)
+        {
+            float brakeInput = Mathf.Max(ServiceBrake, serviceBraking ? Mathf.Abs(throttle) : 0f);
+            forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, fallbackBrakeDeceleration * Mathf.Max(0.01f, brakeInput) * dt);
+            if (Mathf.Abs(forwardSpeed) < 0.05f && throttle < -0.05f && ServiceBrake <= 0.01f)
+                forwardSpeed = -0.1f;
+        }
         else if (Mathf.Abs(throttle) > 0.01f)
         {
-            if (opposingInput)
-                forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, fallbackBrakeDeceleration * Mathf.Abs(throttle) * dt);
-            else
-            {
-                float limit = throttle > 0f ? fallbackMaxSpeed : fallbackMaxReverseSpeed;
-                float room = 1f - Mathf.Clamp01(Mathf.Abs(forwardSpeed) / limit);
-                forwardSpeed += throttle * fallbackAcceleration * room * dt;
-                forwardSpeed = Mathf.Clamp(forwardSpeed, -fallbackMaxReverseSpeed, fallbackMaxSpeed);
-            }
+            float limit = throttle > 0f ? fallbackMaxSpeed : fallbackMaxReverseSpeed;
+            float room = 1f - Mathf.Clamp01(Mathf.Abs(forwardSpeed) / limit);
+            forwardSpeed += throttle * fallbackAcceleration * room * dt;
+            forwardSpeed = Mathf.Clamp(forwardSpeed, -fallbackMaxReverseSpeed, fallbackMaxSpeed);
         }
         else
             forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, 1.2f * dt);
