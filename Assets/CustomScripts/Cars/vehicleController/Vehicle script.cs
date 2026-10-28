@@ -42,11 +42,11 @@ public class Vehicle : MonoBehaviour
     [Min(1f)] public float maxReverseSpeedKph = 30f;
     [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
-    [Tooltip("Engine-braking torque in Nm while coasting, multiplied through the current gear ratio. Set to 0 to disable engine braking.")]
-    [Min(0f)] public float engineBrakeTorque = 0f;
-    [Tooltip("Rolling resistance while coasting. Keep this low so gravity can accelerate the car down slopes.")]
+    [Tooltip("Engine-braking torque at the engine crankshaft while coasting, multiplied through the current gear and final-drive ratios. Set to 0 to disable engine braking. Existing prefabs may retain their serialized Inspector value.")]
+    [Min(0f)] public float engineBrakeTorque = 120f;
+    [Tooltip("Grounded rolling resistance acceleration while coasting, in m/s². Keep low so gravity can accelerate the car down slopes.")]
     [Min(0f)] public float coastResistanceAcceleration = 0.04f;
-    [Tooltip("Speed-proportional air resistance while coasting.")]
+    [Tooltip("Aerodynamic drag coefficient in 1/s. Applied whenever the vehicle is moving, including under throttle and braking. 0.008 gives about 0.22 m/s² drag at 100 km/h.")]
     [Min(0f)] public float coastAirDrag = 0.008f;
     [Min(0.1f)] public float throttleResponse = 3f;
     [Min(0.1f)] public float brakeResponse = 8f;
@@ -419,34 +419,49 @@ public class Vehicle : MonoBehaviour
             appliedSteer, HasDriver ? Steer : 0f,
             1f - Mathf.Exp(-steeringResponse * dt));
 
-        // Coasting resistance, aerodynamic drag and configurable engine braking.
-        // Engine braking only acts while moving; it cannot hold the car stationary.
-        if (Mathf.Abs(targetThrottle) < 0.05f &&
-            targetBrake <= 1f &&
-            !(HasDriver && Handbrake) &&
-            AnyWheelGrounded())
+        // Aerodynamic drag acts whenever the car has planar velocity, not just
+        // after the throttle is released. This avoids an artificial "drag kicks in"
+        // feeling and lets air resistance scale naturally with road speed.
+        Vector3 planarVelocity = Vector3.ProjectOnPlane(GetVelocity(), Vector3.up);
+        if (planarVelocity.sqrMagnitude > 0.0001f)
         {
-            Vector3 planarVelocity = Vector3.ProjectOnPlane(GetVelocity(), Vector3.up);
-            if (planarVelocity.sqrMagnitude > 0.0001f)
-            {
-                Vector3 dragAcceleration =
-                    -planarVelocity.normalized * coastResistanceAcceleration
-                    -planarVelocity * coastAirDrag;
+            Vector3 resistanceAcceleration = -planarVelocity * coastAirDrag;
 
-                if (engineBrakeTorque > 0f && Mathf.Abs(forwardSpeed) > 0.5f && rb.mass > 0.01f)
+            bool coasting = Mathf.Abs(targetThrottle) < 0.05f &&
+                targetBrake <= 1f &&
+                !(HasDriver && Handbrake);
+
+            // Rolling resistance and engine braking require tyre contact and only
+            // act while coasting. Service brakes remain independent and take priority.
+            if (coasting && AnyWheelGrounded())
+            {
+                resistanceAcceleration -= planarVelocity.normalized * coastResistanceAcceleration;
+
+                if (engineBrakeTorque > 0f &&
+                    Mathf.Abs(forwardSpeed) > 0.5f &&
+                    rb.mass > 0.01f)
                 {
                     float ratio = 1f;
                     if (forwardGearRatios != null && forwardGearRatios.Length > 0)
-                        ratio = Mathf.Max(0.1f, forwardGearRatios[Mathf.Clamp(CurrentGear - 1, 0, forwardGearRatios.Length - 1)]);
+                    {
+                        int gearIndex = Mathf.Clamp(CurrentGear - 1, 0, forwardGearRatios.Length - 1);
+                        ratio = Mathf.Max(0.1f, forwardGearRatios[gearIndex]);
+                    }
 
+                    // Convert engine crankshaft braking torque to approximate
+                    // longitudinal deceleration at the tyres. No arbitrary 0.22
+                    // reduction: torque is transmitted through the selected gear
+                    // and final drive, then divided by wheel radius and vehicle mass.
                     float engineBrakeAcceleration = engineBrakeTorque * ratio *
-                        Mathf.Max(1f, finalDriveRatio) * 0.22f /
+                        Mathf.Max(0.1f, finalDriveRatio) /
                         (Mathf.Max(0.05f, wheelRadius) * rb.mass);
-                    dragAcceleration -= transform.forward * Mathf.Sign(forwardSpeed) * engineBrakeAcceleration;
-                }
 
-                rb.AddForce(dragAcceleration, ForceMode.Acceleration);
+                    resistanceAcceleration -= transform.forward *
+                        Mathf.Sign(forwardSpeed) * engineBrakeAcceleration;
+                }
             }
+
+            rb.AddForce(resistanceAcceleration, ForceMode.Acceleration);
         }
 
         float speedLimit = appliedThrottle < 0f ? maxReverseSpeedKph : maxSpeedKph;
