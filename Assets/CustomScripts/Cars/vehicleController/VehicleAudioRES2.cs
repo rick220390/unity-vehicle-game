@@ -130,7 +130,8 @@ public class VehicleAudioRES2 : MonoBehaviour
         }
 
         float redline = Mathf.Max(vehicle.idleRpm + 1f, vehicle.redlineRpm);
-        float rpm = vehicle.HasDriver
+        bool engineAvailable = vehicle.ExternalEngineEnabled;
+        float rpm = vehicle.HasDriver && engineAvailable
             ? Mathf.Clamp(vehicle.EngineRpm, 0f, redline)
             : 0f;
         float speedKph = vehicle.Speed * 3.6f;
@@ -159,13 +160,14 @@ public class VehicleAudioRES2 : MonoBehaviour
         writesSucceeded &= WriteMember("carCurrentSpeed", speedKph, writeDetails);
         writesSucceeded &= WriteMember("carMaxSpeed", Mathf.Max(1f, vehicle.maxSpeedKph), writeDetails);
 
-        bool shifting = vehicle.HasDriver && vehicle.IsShifting;
+        bool shifting = vehicle.HasDriver && engineAvailable && vehicle.IsShifting;
         writesSucceeded &= WriteMember("isShifting", shifting, writeDetails);
 
         bool hasThrottleInput =
             Mathf.Abs(vehicle.Throttle) > Mathf.Max(0.001f, throttleDeadZone);
         bool gasPedalPressed =
             vehicle.HasDriver &&
+            engineAvailable &&
             hasThrottleInput &&
             !shifting &&
             !vehicle.IsBraking;
