@@ -43,8 +43,10 @@ public float minCameraPitch = -10f;
 public float maxCameraPitch = 65f;
 
 [Header("Driving HUD")]
-[Tooltip("Show speed, RPM and current gear only while seated in a vehicle.")]
+[Tooltip("Show speed, RPM, current gear and fuel level only while seated in a vehicle.")]
 public bool showDrivingTelemetry = true;
+[Tooltip("Display the current vehicle's fuel level when it has a VehicleFuel component.")]
+public bool showFuelGauge = true;
 
 private float cameraYaw;
 private float cameraPitch = 15f;
@@ -740,8 +742,10 @@ void DrawDrivingTelemetry()
     if (current == null)
         return;
 
+    VehicleFuel fuel = current.GetComponent<VehicleFuel>();
+    bool drawFuel = showFuelGauge && fuel != null;
     const float panelWidth = 250f;
-    const float panelHeight = 132f;
+    float panelHeight = drawFuel ? 166f : 132f;
     float margin = 22f;
     Rect panel = new Rect(
         Mathf.Max(8f, Screen.width - panelWidth - margin),
@@ -807,23 +811,68 @@ void DrawDrivingTelemetry()
     float rpmFraction = Mathf.Clamp01(rpm / redline);
 
     GUI.Label(
-        new Rect(panel.x + 14f, panel.y + 91f, 110f, 18f),
+        new Rect(panel.x + 14f, panel.y + 91f, 140f, 18f),
         "RPM  " + Mathf.RoundToInt(rpm).ToString("N0"),
         headerStyle
     );
 
-    Rect barBackground = new Rect(panel.x + 14f, panel.y + 112f, panelWidth - 28f, 8f);
+    Rect rpmBarBackground = new Rect(panel.x + 14f, panel.y + 112f, panelWidth - 28f, 8f);
     GUI.color = new Color(0.18f, 0.21f, 0.25f, 1f);
-    GUI.DrawTexture(barBackground, Texture2D.whiteTexture);
+    GUI.DrawTexture(rpmBarBackground, Texture2D.whiteTexture);
     GUI.color = rpmFraction >= 0.9f
         ? new Color(1f, 0.25f, 0.2f, 1f)
         : rpmFraction >= 0.72f
             ? new Color(1f, 0.7f, 0.2f, 1f)
             : new Color(0.25f, 0.78f, 1f, 1f);
     GUI.DrawTexture(
-        new Rect(barBackground.x, barBackground.y, barBackground.width * rpmFraction, barBackground.height),
+        new Rect(rpmBarBackground.x, rpmBarBackground.y, rpmBarBackground.width * rpmFraction, rpmBarBackground.height),
         Texture2D.whiteTexture
     );
+
+    if (drawFuel)
+    {
+        float capacity = Mathf.Max(1f, fuel.FuelCapacityLitres);
+        float litres = Mathf.Clamp(fuel.FuelRemainingLitres, 0f, capacity);
+        float fuelFraction = Mathf.Clamp01(litres / capacity);
+        bool lowFuel = fuelFraction <= 0.15f;
+
+        GUI.color = previousColor;
+        GUI.Label(
+            new Rect(panel.x + 14f, panel.y + 125f, panelWidth - 28f, 18f),
+            "FUEL   " + litres.ToString("0.0") + " / " + capacity.ToString("0") + " L" +
+                "    " + Mathf.RoundToInt(fuelFraction * 100f) + "%",
+            headerStyle
+        );
+
+        Rect fuelBarBackground = new Rect(panel.x + 14f, panel.y + 147f, panelWidth - 28f, 8f);
+        GUI.color = new Color(0.18f, 0.21f, 0.25f, 1f);
+        GUI.DrawTexture(fuelBarBackground, Texture2D.whiteTexture);
+        GUI.color = lowFuel
+            ? new Color(1f, 0.25f, 0.2f, 1f)
+            : fuelFraction <= 0.35f
+                ? new Color(1f, 0.7f, 0.2f, 1f)
+                : new Color(0.35f, 0.85f, 0.45f, 1f);
+        GUI.DrawTexture(
+            new Rect(fuelBarBackground.x, fuelBarBackground.y, fuelBarBackground.width * fuelFraction, fuelBarBackground.height),
+            Texture2D.whiteTexture
+        );
+
+        if (lowFuel)
+        {
+            GUIStyle warningStyle = new GUIStyle(headerStyle)
+            {
+                alignment = TextAnchor.MiddleRight,
+                fontSize = 10
+            };
+            warningStyle.normal.textColor = new Color(1f, 0.35f, 0.3f);
+            GUI.Label(
+                new Rect(panel.x + 135f, panel.y + 8f, panelWidth - 149f, 18f),
+                "LOW FUEL",
+                warningStyle
+            );
+        }
+    }
+
     GUI.color = previousColor;
 }
 
