@@ -368,8 +368,12 @@ public class Vehicle : MonoBehaviour
         // A negative driving axis (for example S/down-arrow) brakes while the car
         // is travelling forward. Once almost stopped, the same held input may
         // engage reverse. A separate ServiceBrake signal also works independently
-        // of throttle, including when throttle and brake are pressed together.
+        // of throttle. Service brakes take priority over propulsion to prevent the
+        // engine fighting the brakes, especially with AWD.
         float forwardSpeed = Vector3.Dot(GetVelocity(), transform.forward);
+        bool serviceBrakeRequested = HasDriver && ServiceBrake > 0.01f;
+        if (serviceBrakeRequested)
+            targetThrottle = 0f;
         bool oppositeInput = Mathf.Abs(forwardSpeed) > 1.0f &&
                              Mathf.Abs(targetThrottle) > 0.05f &&
                              Mathf.Sign(targetThrottle) != Mathf.Sign(forwardSpeed);
@@ -397,13 +401,19 @@ public class Vehicle : MonoBehaviour
         // Cut engine drive torque promptly when the driver releases the accelerator.
         // Smooth throttle application, but do not let residual positive throttle
         // keep driving the car for several physics frames after the input returns to zero.
-        if (Mathf.Abs(targetThrottle) < 0.01f)
+        if (serviceBrakeRequested || Mathf.Abs(targetThrottle) < 0.01f)
             appliedThrottle = 0f;
         else
             appliedThrottle = Mathf.MoveTowards(
                 appliedThrottle, targetThrottle, throttleResponse * dt);
-        appliedBrake = Mathf.MoveTowards(
-            appliedBrake, targetBrake, brakeResponse * serviceBrakeTorque * dt);
+
+        // Apply service braking promptly; throttle must never keep motor torque
+        // alive while the service brake is being requested.
+        if (serviceBrakeRequested)
+            appliedBrake = targetBrake;
+        else
+            appliedBrake = Mathf.MoveTowards(
+                appliedBrake, targetBrake, brakeResponse * serviceBrakeTorque * dt);
         IsBraking = HasDriver && appliedBrake > 1f;
         appliedSteer = Mathf.Lerp(
             appliedSteer, HasDriver ? Steer : 0f,
@@ -412,6 +422,7 @@ public class Vehicle : MonoBehaviour
         // Coasting resistance, aerodynamic drag and configurable engine braking.
         // Engine braking only acts while moving; it cannot hold the car stationary.
         if (Mathf.Abs(targetThrottle) < 0.05f &&
+            targetBrake <= 1f &&
             !(HasDriver && Handbrake) &&
             AnyWheelGrounded())
         {
@@ -440,7 +451,11 @@ public class Vehicle : MonoBehaviour
 
         float speedLimit = appliedThrottle < 0f ? maxReverseSpeedKph : maxSpeedKph;
         bool speedLimited = speedKph >= speedLimit && Mathf.Sign(appliedThrottle) == Mathf.Sign(forwardSpeed);
-        float torque = speedLimited ? 0f : CalculateDriveTorque(appliedThrottle);
+        // Hard interlock: never send positive or reverse motor torque while
+        // the service brake is active, regardless of driven-wheel configuration.
+        float torque = (serviceBrakeRequested || speedLimited)
+            ? 0f
+            : CalculateDriveTorque(appliedThrottle);
 
         // Keep useful steering at normal road speeds, then progressively reduce
         // the angle at high speed to avoid an abrupt, unstable steering response.
