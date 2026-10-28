@@ -504,13 +504,13 @@ public class Vehicle : MonoBehaviour
             return;
         }
 
-        CurrentGear = Mathf.Clamp(CurrentGear, 1, gearCount);
-        float currentRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
-        float totalRatio = currentRatio * Mathf.Max(0.1f, finalDriveRatio);
+        // Calculate wheel RPM from the vehicle's actual road speed, wheel radius,
+        // and selected ratio. WheelCollider.rpm can be wildly out of step with road
+        // speed on imported cars with mismatched collider sizes or wheel assignments;
+        // using it as the shift trigger can make an automatic gearbox race through gears.
+        float circumference = 2f * Mathf.PI * Mathf.Max(0.05f, wheelRadius);
+        float roadSpeedWheelRpm = (speedKph / 3.6f) / circumference * 60f;
 
-        // Estimate engine RPM from driven-wheel rotation and the actual selected
-        // gear/final-drive ratios. Maximum speed is a separate limiter; it no longer
-        // artificially dictates where the engine reaches redline.
         float drivenWheelRpm = 0f;
         int drivenWheelCount = 0;
         if (wheelColliders != null)
@@ -525,31 +525,31 @@ public class Vehicle : MonoBehaviour
                 }
             }
         }
-
-        float wheelRpm;
         debugDrivenWheelRpm = drivenWheelCount > 0 ? drivenWheelRpm / drivenWheelCount : 0f;
         debugDrivenWheelCount = drivenWheelCount;
 
-        if (drivenWheelCount > 0)
+        float coupledRpm;
+        // If stopped, force the selected transmission gear back to first. Engine RPM
+        // may still rise when the driver revs the engine, but that must never trigger
+        // a gear change while the vehicle is stationary.
+        if (speedKph <= 2f)
         {
-            wheelRpm = drivenWheelRpm / drivenWheelCount;
+            CurrentGear = 1;
+            shiftTimer = 0f;
+            shiftCooldown = 0f;
         }
         else
         {
-            // Fallback estimate for configurations without valid driven wheels.
-            float circumference = 2f * Mathf.PI * Mathf.Max(0.05f, wheelRadius);
-            wheelRpm = (speedKph / 3.6f) / circumference * 60f;
+            CurrentGear = Mathf.Clamp(CurrentGear, 1, gearCount);
         }
 
-        float coupledRpm = Mathf.Max(idleRpm, wheelRpm * totalRatio);
+        float currentRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
+        float totalRatio = currentRatio * Mathf.Max(0.1f, finalDriveRatio);
+        coupledRpm = Mathf.Max(idleRpm, roadSpeedWheelRpm * totalRatio);
+
         float clutchBlend = Mathf.Clamp01(speedKph / Mathf.Max(0.1f, clutchEngagementSpeed));
         float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
         float targetRpm = Mathf.Lerp(freeRevRpm, coupledRpm, clutchBlend);
-
-        // At high wheelspin, driven-wheel RPM can rise faster than vehicle speed.
-        // Preserve that signal while the clutch is engaged, bounded by engine redline.
-        if (drivenWheelCount > 0 && clutchBlend > 0f)
-            targetRpm = Mathf.Max(targetRpm, coupledRpm);
         if (shiftTimer > 0f)
             targetRpm = Mathf.Max(idleRpm, targetRpm * 0.72f);
 
@@ -568,6 +568,18 @@ public class Vehicle : MonoBehaviour
         float safeDownshiftRpm = Mathf.Clamp(downshiftRpm, idleRpm, safeUpshiftRpm - 50f);
         debugUpshiftThresholdRpm = safeUpshiftRpm;
 
+        // Gear changes are based on RPM coupled to road speed and the selected
+        // gear ratio, not free-rev RPM. This stops a high redline reading at launch
+        // from instantly racing the gearbox through all seven ratios.
+        float shiftRpm = coupledRpm;
+        if (speedKph <= 2f)
+        {
+            debugShiftStatus = "Stationary: holding first gear";
+            debugCurrentGear = CurrentGear;
+            debugShiftCooldownSeconds = shiftCooldown;
+            debugShiftTimerSeconds = shiftTimer;
+            return;
+        }
         if (!HasDriver)
         {
             debugShiftStatus = "Waiting for driver";
@@ -575,8 +587,13 @@ public class Vehicle : MonoBehaviour
         }
         if (throttle < 0.10f)
         {
-            debugShiftStatus = "Throttle input below shift threshold";
-            return;
+            // Coast-down downshifts are still allowed below; throttle should only
+            // be required for an upshift.
+            if (shiftTimer > 0f)
+            {
+                debugShiftStatus = "Shift in progress";
+                return;
+            }
         }
         if (stationaryHandbrakeBurnout)
         {
@@ -589,17 +606,24 @@ public class Vehicle : MonoBehaviour
             return;
         }
 
-        // Normal shifts wait for cooldown. If RPM reaches the redline despite a
-        // cooldown, allow an upshift rather than holding the engine at redline.
-        bool forcedRedlineUpshift = CurrentGear < gearCount &&
-            EngineRpm >= safeRedline - 10f;
+        // An upshift requires driver throttle. A downshift is allowed while coasting,
+        // so stopping or slowing the vehicle brings the transmission into the right gear.
+        bool forcedRedlineUpshift = throttle >= 0.10f &&
+            CurrentGear < gearCount && shiftRpm >= safeRedline - 10f;
         if (shiftCooldown > 0f && !forcedRedlineUpshift)
         {
-            debugShiftStatus = "Shift cooldown";
-            return;
+            // When slowing, don't make the driver wait for the entire cooldown if
+            // the current gear is clearly too tall for the road speed.
+            bool urgentDownshift = CurrentGear > 1 &&
+                shiftRpm <= safeDownshiftRpm * 0.65f;
+            if (!urgentDownshift)
+            {
+                debugShiftStatus = "Shift cooldown";
+                return;
+            }
         }
 
-        if (CurrentGear < gearCount && EngineRpm >= safeUpshiftRpm)
+        if (throttle >= 0.10f && CurrentGear < gearCount && shiftRpm >= safeUpshiftRpm)
         {
             debugShiftStatus = forcedRedlineUpshift
                 ? "Upshifting at redline (cooldown override)"
@@ -609,7 +633,7 @@ public class Vehicle : MonoBehaviour
             debugShiftCooldownSeconds = shiftCooldown;
             debugShiftTimerSeconds = shiftTimer;
         }
-        else if (CurrentGear > 1 && EngineRpm <= safeDownshiftRpm && speedKph > 8f)
+        else if (CurrentGear > 1 && shiftRpm <= safeDownshiftRpm && speedKph > 2f)
         {
             debugShiftStatus = "Downshifting";
             BeginShift(CurrentGear - 1);
@@ -617,13 +641,15 @@ public class Vehicle : MonoBehaviour
             debugShiftCooldownSeconds = shiftCooldown;
             debugShiftTimerSeconds = shiftTimer;
         }
-        else if (CurrentGear >= gearCount && EngineRpm >= safeUpshiftRpm)
+        else if (CurrentGear >= gearCount && shiftRpm >= safeUpshiftRpm)
         {
             debugShiftStatus = "At highest configured gear";
         }
         else
         {
-            debugShiftStatus = "Waiting for RPM upshift threshold";
+            debugShiftStatus = throttle >= 0.10f
+                ? "Waiting for road-speed RPM upshift threshold"
+                : "Coasting: waiting for downshift threshold";
         }
     }
 
