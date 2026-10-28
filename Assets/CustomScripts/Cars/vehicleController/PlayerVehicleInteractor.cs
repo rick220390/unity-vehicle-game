@@ -132,7 +132,9 @@ void Update()
 
         // Vehicle driving controls.
         float verticalInput = Input.GetAxis("Vertical");
-        float serviceBrakeInput = Mathf.Clamp01(-verticalInput);
+        float serviceBrakeInput = verticalInput < 0f && current.ForwardSpeed > 0.5f
+            ? Mathf.Clamp01(-verticalInput)
+            : 0f;
 
         current.SetInput(
             verticalInput,
