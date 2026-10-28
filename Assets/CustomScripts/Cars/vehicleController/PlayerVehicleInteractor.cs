@@ -131,10 +131,14 @@ void Update()
         nearbyDoor = null;
 
         // Vehicle driving controls.
+        float verticalInput = Input.GetAxis("Vertical");
+        float serviceBrakeInput = Mathf.Clamp01(-verticalInput);
+
         current.SetInput(
-            Input.GetAxis("Vertical"),
+            verticalInput,
             Input.GetAxis("Horizontal"),
-            Input.GetKey(handbrakeKey)
+            Input.GetKey(handbrakeKey),
+            serviceBrakeInput
         );
 
         if (Input.GetKeyDown(interactKey))
