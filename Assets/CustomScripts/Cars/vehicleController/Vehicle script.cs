@@ -615,11 +615,10 @@ public class Vehicle : MonoBehaviour
         // conflict with the physical RPM estimate, causing 1st/2nd gear hunting.
         float currentGearRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
         float currentTotalRatio = currentGearRatio * Mathf.Max(0.1f, finalDriveRatio);
-        float metresPerSecondPerKph = 1f / 3.6f;
         float speedAtUpshiftRpm = safeUpshiftRpm *
-            circumference * metresPerSecondPerKph / (currentTotalRatio);
+            circumference * 3.6f / (60f * currentTotalRatio);
         float speedAtDownshiftRpm = safeDownshiftRpm *
-            circumference * metresPerSecondPerKph / (currentTotalRatio);
+            circumference * 3.6f / (60f * currentTotalRatio);
 
         bool speedRequestsUpshift = speedKph >= speedAtUpshiftRpm;
         bool speedRequestsDownshift = speedKph <= speedAtDownshiftRpm;
