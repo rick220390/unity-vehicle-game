@@ -13,8 +13,8 @@ public class VehicleFuel : MonoBehaviour
 {
     [Header("Fuel tank")]
     [Min(1f)] public float tankCapacityLitres = 60f;
-    [Tooltip("When enabled, the tank starts full whenever the scene starts.")]
-    public bool startWithFullTank = true;
+    [Tooltip("When enabled, this overrides Current Fuel Litres and fills the tank at scene start. Disable it to use Current Fuel Litres as the starting amount.")]
+    public bool startWithFullTank = false;
     [Min(0f)] public float currentFuelLitres = 60f;
 
     [Header("Fuel consumption")]
