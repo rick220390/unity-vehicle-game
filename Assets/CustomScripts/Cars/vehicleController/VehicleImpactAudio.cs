@@ -16,24 +16,23 @@ public class VehicleImpactAudio : MonoBehaviour
     public AudioClip crashClip;
 
     [Header("Landing detection")]
-    [Tooltip("Ignore landings below this vertical impact speed, in metres per second.")]
-    [Min(0f)] public float minimumLandingSpeed = 2.2f;
+    [Min(0f)] public float minimumLandingSpeed = 1.2f;
     [Tooltip("A landing at or above this speed uses the crash clip if assigned; otherwise it uses the landing clip.")]
     [Min(0f)] public float heavyLandingSpeed = 9f;
 
     [Header("Collision detection")]
-    [Tooltip("Ignore gentle touches below this collision relative speed, in metres per second.")]
-    [Min(0f)] public float minimumCollisionSpeed = 2f;
-    [Tooltip("Collisions at or above this speed use the crash clip.")]
+    [Min(0f)] public float minimumCollisionSpeed = 1.2f;
     [Min(0f)] public float crashCollisionSpeed = 7f;
 
     [Header("Playback")]
-    [Range(0f, 1f)] public float landingVolume = 0.8f;
-    [Range(0f, 1f)] public float bodyImpactVolume = 0.75f;
+    [Range(0f, 1f)] public float landingVolume = 1f;
+    [Range(0f, 1f)] public float bodyImpactVolume = 1f;
     [Range(0f, 1f)] public float crashVolume = 1f;
-    [Tooltip("Minimum time between impact sounds, preventing repeated suspension bounces from spamming audio.")]
     [Min(0f)] public float impactCooldown = 0.3f;
-    [Min(1f)] public float maxDistance = 70f;
+    [Min(1f)] public float maxDistance = 120f;
+    [Min(0f)] public float minDistance = 8f;
+    [Tooltip("Enable to print which events trigger and warn if a required sound clip is missing.")]
+    public bool debugLogging = true;
 
     private Vehicle vehicle;
     private Rigidbody body;
@@ -47,18 +46,26 @@ public class VehicleImpactAudio : MonoBehaviour
         vehicle = GetComponent<Vehicle>();
         body = GetComponent<Rigidbody>();
 
-        impactSource = GetComponent<AudioSource>();
-        if (impactSource == null)
-            impactSource = gameObject.AddComponent<AudioSource>();
-
+        // Always create a dedicated source. Reusing GetComponent<AudioSource>() can
+        // hijack the engine source and change its loop/spatial/audio settings.
+        impactSource = gameObject.AddComponent<AudioSource>();
         impactSource.playOnAwake = false;
         impactSource.loop = false;
-        impactSource.spatialBlend = 1f;
+        impactSource.spatialBlend = 0.65f;
         impactSource.rolloffMode = AudioRolloffMode.Logarithmic;
-        impactSource.minDistance = 3f;
+        impactSource.minDistance = minDistance;
         impactSource.maxDistance = maxDistance;
+        impactSource.dopplerLevel = 0f;
 
         wasGrounded = AreWheelsGrounded();
+
+        if (debugLogging)
+        {
+            if (landingAndBodyImpactClip == null)
+                Debug.LogWarning($"[{nameof(VehicleImpactAudio)}] Landing/body impact clip is not assigned on '{name}'.", this);
+            if (crashClip == null)
+                Debug.LogWarning($"[{nameof(VehicleImpactAudio)}] Crash clip is not assigned on '{name}'.", this);
+        }
     }
 
     private void FixedUpdate()
@@ -67,23 +74,21 @@ public class VehicleImpactAudio : MonoBehaviour
 
         if (!grounded)
         {
-            // Keep the last airborne vertical speed so touchdown is measured before
-            // the WheelColliders resolve the landing and reduce the Rigidbody velocity.
             lastAirborneVerticalSpeed = body.velocity.y;
         }
         else if (!wasGrounded)
         {
             float landingSpeed = Mathf.Abs(lastAirborneVerticalSpeed);
+            if (debugLogging)
+                Debug.Log($"[{nameof(VehicleImpactAudio)}] Landing detected on '{name}', vertical speed {landingSpeed:F1} m/s.", this);
+
             if (landingSpeed >= minimumLandingSpeed)
             {
-                AudioClip clip = landingSpeed >= heavyLandingSpeed && crashClip != null
-                    ? crashClip
-                    : landingAndBodyImpactClip;
-                float volume = clip == crashClip && crashClip != null
-                    ? crashVolume
-                    : landingVolume;
-
-                PlayImpact(clip, volume);
+                bool heavyLanding = landingSpeed >= heavyLandingSpeed && crashClip != null;
+                PlayImpact(
+                    heavyLanding ? crashClip : landingAndBodyImpactClip,
+                    heavyLanding ? crashVolume : landingVolume,
+                    heavyLanding ? "heavy landing" : "landing");
             }
         }
 
@@ -107,10 +112,13 @@ public class VehicleImpactAudio : MonoBehaviour
 
     private void OnCollisionEnter(Collision collision)
     {
-        if (collision == null || collision.contactCount == 0)
+        if (collision == null)
             return;
 
         float impactSpeed = collision.relativeVelocity.magnitude;
+        if (debugLogging)
+            Debug.Log($"[{nameof(VehicleImpactAudio)}] Collision with '{collision.gameObject.name}' on '{name}', relative speed {impactSpeed:F1} m/s.", this);
+
         if (impactSpeed < minimumCollisionSpeed)
             return;
 
@@ -118,16 +126,33 @@ public class VehicleImpactAudio : MonoBehaviour
         AudioClip clip = isCrash ? crashClip : landingAndBodyImpactClip;
         float volume = isCrash ? crashVolume : bodyImpactVolume;
 
-        PlayImpact(clip, volume);
+        PlayImpact(clip, volume, isCrash ? "crash" : "body impact");
     }
 
-    private void PlayImpact(AudioClip clip, float volume)
+    private void PlayImpact(AudioClip clip, float volume, string reason)
     {
-        if (clip == null || impactSource == null || Time.time < nextImpactTime)
+        if (Time.time < nextImpactTime)
             return;
 
+        if (clip == null)
+        {
+            if (debugLogging)
+                Debug.LogWarning($"[{nameof(VehicleImpactAudio)}] {reason} triggered on '{name}', but its AudioClip is not assigned.", this);
+            return;
+        }
+
+        if (impactSource == null)
+        {
+            Debug.LogWarning($"[{nameof(VehicleImpactAudio)}] No impact AudioSource exists on '{name}'.", this);
+            return;
+        }
+
+        impactSource.minDistance = minDistance;
         impactSource.maxDistance = maxDistance;
         impactSource.PlayOneShot(clip, Mathf.Clamp01(volume));
         nextImpactTime = Time.time + impactCooldown;
+
+        if (debugLogging)
+            Debug.Log($"[{nameof(VehicleImpactAudio)}] Playing '{clip.name}' for {reason} on '{name}' (volume {volume:F2}).", this);
     }
 }
