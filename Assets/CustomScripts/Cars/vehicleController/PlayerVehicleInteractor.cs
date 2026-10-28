@@ -42,6 +42,10 @@ public float mouseSensitivity = 3f;
 public float minCameraPitch = -10f;
 public float maxCameraPitch = 65f;
 
+[Header("Driving HUD")]
+[Tooltip("Show speed, RPM and current gear only while seated in a vehicle.")]
+public bool showDrivingTelemetry = true;
+
 private float cameraYaw;
 private float cameraPitch = 15f;
 
@@ -697,6 +701,10 @@ void Say(string text)
 
 void OnGUI()
 {
+    // Driving telemetry is only drawn while this player is actually inside a vehicle.
+    if (current != null && showDrivingTelemetry)
+        DrawDrivingTelemetry();
+
     string text = null;
 
     if (messageTimer > 0f)
@@ -725,6 +733,98 @@ void OnGUI()
         text,
         style
     );
+}
+
+void DrawDrivingTelemetry()
+{
+    if (current == null)
+        return;
+
+    const float panelWidth = 250f;
+    const float panelHeight = 132f;
+    float margin = 22f;
+    Rect panel = new Rect(
+        Mathf.Max(8f, Screen.width - panelWidth - margin),
+        Mathf.Max(8f, Screen.height - panelHeight - margin),
+        panelWidth,
+        panelHeight
+    );
+
+    Color previousColor = GUI.color;
+    GUI.color = new Color(0.035f, 0.045f, 0.06f, 0.88f);
+    GUI.Box(panel, GUIContent.none);
+    GUI.color = previousColor;
+
+    GUIStyle headerStyle = new GUIStyle(GUI.skin.label)
+    {
+        alignment = TextAnchor.MiddleLeft,
+        fontSize = 11,
+        fontStyle = FontStyle.Bold
+    };
+    headerStyle.normal.textColor = new Color(0.72f, 0.78f, 0.84f);
+
+    GUIStyle speedStyle = new GUIStyle(GUI.skin.label)
+    {
+        alignment = TextAnchor.MiddleLeft,
+        fontSize = 42,
+        fontStyle = FontStyle.Bold
+    };
+    speedStyle.normal.textColor = Color.white;
+
+    GUIStyle unitStyle = new GUIStyle(GUI.skin.label)
+    {
+        alignment = TextAnchor.MiddleLeft,
+        fontSize = 12,
+        fontStyle = FontStyle.Bold
+    };
+    unitStyle.normal.textColor = new Color(0.72f, 0.78f, 0.84f);
+
+    GUIStyle gearStyle = new GUIStyle(GUI.skin.label)
+    {
+        alignment = TextAnchor.MiddleCenter,
+        fontSize = 24,
+        fontStyle = FontStyle.Bold
+    };
+    gearStyle.normal.textColor = new Color(0.55f, 0.9f, 1f);
+
+    GUI.Label(new Rect(panel.x + 14f, panel.y + 8f, 100f, 18f), "SPEED", headerStyle);
+    float speedKph = current.Speed * 3.6f;
+    GUI.Label(
+        new Rect(panel.x + 12f, panel.y + 23f, 145f, 53f),
+        Mathf.RoundToInt(speedKph).ToString(),
+        speedStyle
+    );
+    GUI.Label(new Rect(panel.x + 16f, panel.y + 74f, 55f, 18f), "KM/H", unitStyle);
+
+    GUI.Label(
+        new Rect(panel.x + panelWidth - 76f, panel.y + 31f, 58f, 38f),
+        "G" + Mathf.Max(1, current.CurrentGear),
+        gearStyle
+    );
+
+    float redline = Mathf.Max(current.idleRpm + 1f, current.redlineRpm);
+    float rpm = Mathf.Clamp(current.EngineRpm, 0f, redline);
+    float rpmFraction = Mathf.Clamp01(rpm / redline);
+
+    GUI.Label(
+        new Rect(panel.x + 14f, panel.y + 91f, 110f, 18f),
+        "RPM  " + Mathf.RoundToInt(rpm).ToString("N0"),
+        headerStyle
+    );
+
+    Rect barBackground = new Rect(panel.x + 14f, panel.y + 112f, panelWidth - 28f, 8f);
+    GUI.color = new Color(0.18f, 0.21f, 0.25f, 1f);
+    GUI.DrawTexture(barBackground, Texture2D.whiteTexture);
+    GUI.color = rpmFraction >= 0.9f
+        ? new Color(1f, 0.25f, 0.2f, 1f)
+        : rpmFraction >= 0.72f
+            ? new Color(1f, 0.7f, 0.2f, 1f)
+            : new Color(0.25f, 0.78f, 1f, 1f);
+    GUI.DrawTexture(
+        new Rect(barBackground.x, barBackground.y, barBackground.width * rpmFraction, barBackground.height),
+        Texture2D.whiteTexture
+    );
+    GUI.color = previousColor;
 }
 
 }
