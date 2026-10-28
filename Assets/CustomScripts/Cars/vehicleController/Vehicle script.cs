@@ -392,24 +392,19 @@ public class Vehicle : MonoBehaviour
             targetThrottle = 0f;
         }
 
-        // Engine braking is applied as a separate drivetrain force below, rather
-        // than WheelCollider brake torque, so it does not act like a parking brake.
-
         if (HasDriver && Handbrake)
             targetBrake = Mathf.Max(targetBrake, handbrakeTorque);
 
-        // Cut engine drive torque promptly when the driver releases the accelerator.
-        // Smooth throttle application, but do not let residual positive throttle
-        // keep driving the car for several physics frames after the input returns to zero.
+        // Release propulsion immediately when the accelerator returns to neutral.
+        // A brake request also cuts propulsion and applies braking in this same
+        // physics tick; brake response smoothing must not introduce a dangerous delay.
         if (serviceBrakeRequested || Mathf.Abs(targetThrottle) < 0.01f)
             appliedThrottle = 0f;
         else
             appliedThrottle = Mathf.MoveTowards(
                 appliedThrottle, targetThrottle, throttleResponse * dt);
 
-        // Apply service braking promptly; throttle must never keep motor torque
-        // alive while the service brake is being requested.
-        if (serviceBrakeRequested)
+        if (targetBrake > 1f || serviceBrakeRequested)
             appliedBrake = targetBrake;
         else
             appliedBrake = Mathf.MoveTowards(
@@ -466,9 +461,9 @@ public class Vehicle : MonoBehaviour
 
         float speedLimit = appliedThrottle < 0f ? maxReverseSpeedKph : maxSpeedKph;
         bool speedLimited = speedKph >= speedLimit && Mathf.Sign(appliedThrottle) == Mathf.Sign(forwardSpeed);
-        // Hard interlock: never send positive or reverse motor torque while
-        // the service brake is active, regardless of driven-wheel configuration.
-        float torque = (serviceBrakeRequested || speedLimited)
+        // Hard interlock: any brake torque or explicit service-brake request
+        // prevents motor torque, regardless of driven-wheel configuration.
+        float torque = (targetBrake > 1f || serviceBrakeRequested || speedLimited)
             ? 0f
             : CalculateDriveTorque(appliedThrottle);
 
