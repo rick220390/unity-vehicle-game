@@ -609,27 +609,27 @@ public class Vehicle : MonoBehaviour
             return;
         }
 
-        // Gearbox speed fallback: treat maxSpeedKph as the approximate speed
-        // available at redline in the top gear. Ratio-proportional shift speeds keep
-        // the transmission moving even if a particular car's wheel radius or engine
-        // RPM estimate is imperfect. RPM remains the primary trigger.
-        float topGearRatio = Mathf.Max(0.1f, forwardGearRatios[gearCount - 1]);
+        // Keep RPM-based shift decisions and speed fallbacks mathematically aligned.
+        // Derive the expected road speed directly from the same wheel radius and
+        // drivetrain ratios used by coupledRpm. A maxSpeedKph-based estimate can
+        // conflict with the physical RPM estimate, causing 1st/2nd gear hunting.
         float currentGearRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
-        float speedAtUpshiftRpm = Mathf.Max(1f, maxSpeedKph) *
-            topGearRatio / currentGearRatio *
-            (safeUpshiftRpm / safeRedline);
-        float speedAtDownshiftRpm = Mathf.Max(1f, maxSpeedKph) *
-            topGearRatio / currentGearRatio *
-            (safeDownshiftRpm / safeRedline);
+        float currentTotalRatio = currentGearRatio * Mathf.Max(0.1f, finalDriveRatio);
+        float metresPerSecondPerKph = 1f / 3.6f;
+        float speedAtUpshiftRpm = safeUpshiftRpm *
+            circumference * metresPerSecondPerKph / (currentTotalRatio);
+        float speedAtDownshiftRpm = safeDownshiftRpm *
+            circumference * metresPerSecondPerKph / (currentTotalRatio);
 
         bool speedRequestsUpshift = speedKph >= speedAtUpshiftRpm;
         bool speedRequestsDownshift = speedKph <= speedAtDownshiftRpm;
 
-        debugShiftStatus = "RPM shift " + shiftRpm.ToString("0") +
-            " | upshift speed " + speedAtUpshiftRpm.ToString("0.0") + " km/h";
+        debugShiftStatus = "RPM " + shiftRpm.ToString("0") +
+            " | up " + speedAtUpshiftRpm.ToString("0.0") +
+            " / down " + speedAtDownshiftRpm.ToString("0.0") + " km/h";
 
         // An upshift requires driver throttle. A downshift is allowed while coasting.
-        // Either engine RPM or the ratio-derived road-speed estimate may request a shift.
+        // RPM and speed fallback now describe the same physical shift point.
         bool forcedRedlineUpshift = throttle >= 0.10f &&
             CurrentGear < gearCount &&
             (shiftRpm >= safeRedline - 10f || speedRequestsUpshift);
