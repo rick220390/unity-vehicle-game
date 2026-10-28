@@ -566,7 +566,7 @@ public class Vehicle : MonoBehaviour
         if (Mathf.Abs(throttle) < 0.01f)
             return 0f;
         if (throttle < 0f)
-            return throttle * motorTorque * 0.55f;
+            return throttle * motorTorque * 0.55f * ExternalEnginePowerMultiplier;
 
         float rpm01 = Mathf.InverseLerp(idleRpm, redlineRpm, EngineRpm);
         float torqueCurve = rpm01 < 0.55f
