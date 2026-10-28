@@ -69,6 +69,10 @@ public class VehicleAudioRES2 : MonoBehaviour
     public float debugRes2ReadbackRPM;
     public string debugRes2Type = "Not found";
     public string debugRes2ObjectPath = "Not found";
+    public bool debugAudioRootFollowsVehicle;
+    public string debugAudioRootPath = "Not found";
+    public int debugAudioSourceCount;
+    public float debugFarthestSourceDistanceFromVehicle;
     [TextArea(2, 5)] public string debugWriteDetails = "No writes attempted yet.";
 
     private Rigidbody vehicleRigidbody;
@@ -319,17 +323,55 @@ public class VehicleAudioRES2 : MonoBehaviour
         if (res2Component == null)
         {
             res2PrefabRoot = null;
+            debugAudioRootFollowsVehicle = false;
+            debugAudioRootPath = "Not found";
             return;
         }
 
         Transform root = res2Component.transform;
-        if (vehicle != null && root != vehicle.transform)
+
+        if (vehicle != null)
         {
-            while (root.parent != null && root.parent != vehicle.transform)
-                root = root.parent;
+            if (root == vehicle.transform)
+            {
+                res2PrefabRoot = vehicle.transform;
+            }
+            else if (root.IsChildOf(vehicle.transform))
+            {
+                // Use the top of the RES2-specific subtree, but never climb beyond
+                // the car root into the scene hierarchy.
+                while (root.parent != null && root.parent != vehicle.transform)
+                    root = root.parent;
+
+                res2PrefabRoot = root;
+            }
+            else
+            {
+                // A separately placed RES2 prefab is a common cause of the engine
+                // sound seeming to remain at the start position while the car drives
+                // away. Attach the RES2 component's own audio subtree to the vehicle,
+                // keeping its current world pose so it follows the car from this point on.
+                root.SetParent(vehicle.transform, true);
+                res2PrefabRoot = root;
+
+                Debug.LogWarning(
+                    name + ": The RES2 audio object was outside the vehicle hierarchy. " +
+                    "It has been parented to the vehicle so its engine audio follows the car.",
+                    this);
+            }
+        }
+        else
+        {
+            // Without a known vehicle, only adjust the component's own subtree.
+            // Never use Transform.root here: it could be the entire scene.
+            res2PrefabRoot = root;
         }
 
-        res2PrefabRoot = root;
+        debugAudioRootFollowsVehicle = vehicle != null &&
+            (res2PrefabRoot == vehicle.transform || res2PrefabRoot.IsChildOf(vehicle.transform));
+        debugAudioRootPath = res2PrefabRoot != null
+            ? GetHierarchyPath(res2PrefabRoot)
+            : "Not found";
         nextAudioDistanceRefresh = 0f;
     }
 
@@ -338,6 +380,15 @@ public class VehicleAudioRES2 : MonoBehaviour
         if (res2PrefabRoot == null)
             return;
 
+        // RES2 may recreate or detach part of its audio setup while running.
+        // Reattach it if it ever stops following the active vehicle.
+        if (vehicle != null &&
+            res2PrefabRoot != vehicle.transform &&
+            !res2PrefabRoot.IsChildOf(vehicle.transform))
+        {
+            CacheRes2PrefabRoot();
+        }
+
         if (Time.unscaledTime < nextAudioDistanceRefresh)
             return;
 
@@ -345,6 +396,8 @@ public class VehicleAudioRES2 : MonoBehaviour
             Time.unscaledTime + Mathf.Clamp(audioDistanceRefreshSeconds, 0.1f, 3f);
 
         AudioSource[] sources = res2PrefabRoot.GetComponentsInChildren<AudioSource>(true);
+        debugAudioSourceCount = sources.Length;
+        debugFarthestSourceDistanceFromVehicle = 0f;
         float minDistance = Mathf.Max(1f, engineAudioMinDistance);
         float maxDistance = Mathf.Max(minDistance + 1f, engineAudioMaxDistance);
 
@@ -352,6 +405,13 @@ public class VehicleAudioRES2 : MonoBehaviour
         {
             if (source == null)
                 continue;
+
+            if (vehicle != null)
+            {
+                float sourceDistance = Vector3.Distance(source.transform.position, vehicle.transform.position);
+                debugFarthestSourceDistanceFromVehicle =
+                    Mathf.Max(debugFarthestSourceDistanceFromVehicle, sourceDistance);
+            }
 
             // Change only distance attenuation; keep RES2's clips, mixer routing,
             // volumes, pitch curves and spatial blend settings intact.
