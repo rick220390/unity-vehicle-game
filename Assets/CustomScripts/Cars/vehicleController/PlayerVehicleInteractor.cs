@@ -131,7 +131,9 @@ void Update()
         nearbyDoor = null;
 
         // Vehicle driving controls.
-        float verticalInput = Input.GetAxis("Vertical");
+        // Use raw vertical input for driving so releasing throttle and pressing
+        // brake/reverse is not delayed by Unity's axis smoothing.
+        float verticalInput = Input.GetAxisRaw("Vertical");
         float serviceBrakeInput = verticalInput < 0f && current.ForwardSpeed > 0.5f
             ? Mathf.Clamp01(-verticalInput)
             : 0f;
