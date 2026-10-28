@@ -98,6 +98,8 @@ public class Vehicle : MonoBehaviour
     public int debugCurrentGear = 1;
     public int debugForwardGearCount;
     public float debugUpshiftThresholdRpm;
+    [Tooltip("RPM predicted from road speed and the selected gear; this is the RPM used for automatic shift decisions.")]
+    public float debugShiftRpm;
     public float debugDrivenWheelRpm;
     public int debugDrivenWheelCount;
     public float debugShiftCooldownSeconds;
@@ -546,6 +548,7 @@ public class Vehicle : MonoBehaviour
         float currentRatio = Mathf.Max(0.1f, forwardGearRatios[CurrentGear - 1]);
         float totalRatio = currentRatio * Mathf.Max(0.1f, finalDriveRatio);
         coupledRpm = Mathf.Max(idleRpm, roadSpeedWheelRpm * totalRatio);
+        debugShiftRpm = coupledRpm;
 
         float clutchBlend = Mathf.Clamp01(speedKph / Mathf.Max(0.1f, clutchEngagementSpeed));
         float freeRevRpm = idleRpm + throttle * (redlineRpm - idleRpm);
