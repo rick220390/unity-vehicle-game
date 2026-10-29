@@ -92,6 +92,18 @@ public class Vehicle : MonoBehaviour
     [Range(0.1f, 1f)] public float dirtForwardGripMultiplier = 0.75f;
     [Range(0.1f, 1f)] public float dirtSidewaysGripMultiplier = 0.70f;
 
+    [Header("Dirt Wheel Dust")]
+    [Tooltip("Creates a soft brown dust plume behind grounded wheels when they touch the painted Dirt Terrain Layer.")]
+    public bool enableDirtWheelDust = true;
+    [Tooltip("Minimum vehicle speed in metres per second before dirt dust appears.")]
+    [Min(0f)] public float dirtDustMinimumSpeed = 1.5f;
+    [Tooltip("Dust emission strength at normal driving speed. Increase for a thicker plume.")]
+    [Min(0f)] public float dirtDustEmissionRate = 22f;
+    [Tooltip("Extra dust generated when a wheel is slipping on dirt.")]
+    [Min(0f)] public float dirtDustSlipBoost = 20f;
+    [Tooltip("Maximum speed used to scale the dust emission rate.")]
+    [Min(1f)] public float dirtDustFullEmissionSpeed = 18f;
+
     private TerrainData surfaceTerrainData;
     private TerrainCollider surfaceTerrainCollider;
     private TerrainLayer[] cachedTerrainLayers;
@@ -100,6 +112,8 @@ public class Vehicle : MonoBehaviour
     private int dirtTerrainLayerIndex = -1;
     private float[] wheelSurfaceForwardMultipliers;
     private float[] wheelSurfaceSidewaysMultipliers;
+    private bool[] wheelSurfaceIsDirt;
+    private ParticleSystem[] wheelDirtDustEffects;
     [Tooltip("Reduces brake torque when a grounded wheel is close to locking, approximating ABS.")]
     public bool useABS = true;
     [Range(0.05f, 1f)] public float absSlipThreshold = 0.35f;
@@ -232,6 +246,7 @@ public class Vehicle : MonoBehaviour
         CacheWheels();
         CacheWheelVisualOffsets();
         InitializeTerrainSurfaceCache();
+        InitializeWheelDirtDust();
         ConfigureWheelColliders();
     }
 
@@ -360,6 +375,8 @@ public class Vehicle : MonoBehaviour
         {
             wheelSurfaceForwardMultipliers[i] = 1f;
             wheelSurfaceSidewaysMultipliers[i] = 1f;
+            if (wheelSurfaceIsDirt != null && i < wheelSurfaceIsDirt.Length)
+                wheelSurfaceIsDirt[i] = false;
         }
     }
 
@@ -429,9 +446,137 @@ public class Vehicle : MonoBehaviour
             {
                 wheelSurfaceForwardMultipliers[i] = dirtForwardGripMultiplier;
                 wheelSurfaceSidewaysMultipliers[i] = dirtSidewaysGripMultiplier;
+                if (wheelSurfaceIsDirt != null && i < wheelSurfaceIsDirt.Length)
+                    wheelSurfaceIsDirt[i] = true;
             }
         }
 
+    }
+
+    private void InitializeWheelDirtDust()
+    {
+        wheelSurfaceIsDirt = new bool[validWheels.Count];
+        wheelDirtDustEffects = new ParticleSystem[validWheels.Count];
+
+        for (int i = 0; i < validWheels.Count; i++)
+        {
+            WheelCollider wheel = validWheels[i];
+            if (wheel == null)
+                continue;
+
+            GameObject dustObject = new GameObject($"{wheel.name}_DirtDust");
+            dustObject.transform.SetParent(transform, false);
+            dustObject.transform.position = wheel.transform.position;
+
+            ParticleSystem particles = dustObject.AddComponent<ParticleSystem>();
+            var main = particles.main;
+            main.loop = true;
+            main.playOnAwake = false;
+            main.duration = 5f;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.45f, 1.1f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 2.0f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.32f);
+            main.startColor = new Color(0.48f, 0.34f, 0.21f, 0.52f);
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = 180;
+            main.gravityModifier = -0.025f;
+
+            var emission = particles.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0f;
+
+            var shape = particles.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 24f;
+            shape.radius = 0.16f;
+            shape.length = 0.12f;
+
+            var color = particles.colorOverLifetime;
+            color.enabled = true;
+            Gradient fade = new Gradient();
+            fade.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(0.48f, 0.34f, 0.21f), 0f),
+                    new GradientColorKey(new Color(0.58f, 0.46f, 0.32f), 1f)
+                },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.48f, 0.12f),
+                    new GradientAlphaKey(0f, 1f)
+                });
+            color.color = fade;
+
+            var renderer = particles.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.sortingFudge = 1f;
+
+            wheelDirtDustEffects[i] = particles;
+        }
+    }
+
+    private void UpdateWheelDirtDust()
+    {
+        if (!enableDirtWheelDust || wheelDirtDustEffects == null || wheelSurfaceIsDirt == null)
+        {
+            StopWheelDirtDust();
+            return;
+        }
+
+        float speed = rb != null ? rb.velocity.magnitude : 0f;
+        bool movingFastEnough = speed >= dirtDustMinimumSpeed;
+        Vector3 horizontalVelocity = rb != null ? Vector3.ProjectOnPlane(rb.velocity, Vector3.up) : Vector3.zero;
+
+        for (int i = 0; i < wheelDirtDustEffects.Length; i++)
+        {
+            ParticleSystem particles = wheelDirtDustEffects[i];
+            WheelCollider wheel = i < validWheels.Count ? validWheels[i] : null;
+            if (particles == null || wheel == null)
+                continue;
+
+            bool onDirt = i < wheelSurfaceIsDirt.Length && wheelSurfaceIsDirt[i] && wheel.GetGroundHit(out WheelHit hit);
+            if (!onDirt || !movingFastEnough)
+            {
+                var emission = particles.emission;
+                emission.rateOverTime = 0f;
+                if (particles.isPlaying)
+                    particles.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+                continue;
+            }
+
+            particles.transform.position = hit.point + hit.normal * 0.035f;
+            Vector3 plumeDirection = horizontalVelocity.sqrMagnitude > 0.01f
+                ? -horizontalVelocity.normalized + Vector3.up * 0.65f
+                : -transform.forward + Vector3.up * 0.65f;
+            particles.transform.rotation = Quaternion.LookRotation(plumeDirection.normalized, hit.normal);
+
+            float speedFactor = Mathf.Clamp01(speed / Mathf.Max(1f, dirtDustFullEmissionSpeed));
+            float slip = Mathf.Max(Mathf.Abs(hit.forwardSlip), Mathf.Abs(hit.sidewaysSlip));
+            float slipFactor = Mathf.Clamp01(slip / 1.5f);
+            float rate = dirtDustEmissionRate * speedFactor + dirtDustSlipBoost * slipFactor;
+            var currentEmission = particles.emission;
+            currentEmission.rateOverTime = rate;
+            if (!particles.isPlaying)
+                particles.Play();
+        }
+    }
+
+    private void StopWheelDirtDust()
+    {
+        if (wheelDirtDustEffects == null)
+            return;
+
+        foreach (ParticleSystem particles in wheelDirtDustEffects)
+        {
+            if (particles == null)
+                continue;
+            var emission = particles.emission;
+            emission.rateOverTime = 0f;
+            if (particles.isPlaying)
+                particles.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+        }
     }
 
     private void DrawAndLogSurfaceGripDebug()
@@ -623,6 +768,7 @@ public class Vehicle : MonoBehaviour
         if (validWheels.Count > 0)
         {
             UpdateWheelSurfaceGripMultipliers();
+            UpdateWheelDirtDust();
             ApplyWheelColliderTuning();
         }
 
