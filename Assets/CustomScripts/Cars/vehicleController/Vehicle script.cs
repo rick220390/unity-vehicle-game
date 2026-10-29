@@ -74,7 +74,11 @@ public class Vehicle : MonoBehaviour
     public bool debugSurfaceGrip;
     [Tooltip("Writes one diagnostic line per wheel roughly once per second.")]
     public bool debugSurfaceGripToConsole;
+    [Tooltip("Shows a temporary surface-grip panel near the bottom-right HUD. The offset is measured from the bottom-right corner.")]
+    public bool debugSurfaceGripOnScreen = true;
+    public Vector2 debugSurfaceGripScreenOffset = new Vector2(20f, 155f);
     private float nextSurfaceGripDebugTime;
+    private string[] surfaceGripDebugLines;
 
     [Header("Terrain Surface Grip")]
     [Tooltip("Terrain whose painted layers control grip. If empty, the active Terrain is used.")]
@@ -444,8 +448,12 @@ public class Vehicle : MonoBehaviour
             float sidewaysMultiplier = wheelSurfaceSidewaysMultipliers != null && i < wheelSurfaceSidewaysMultipliers.Length
                 ? wheelSurfaceSidewaysMultipliers[i] : 1f;
 
+            if (surfaceGripDebugLines == null || surfaceGripDebugLines.Length != validWheels.Count)
+                surfaceGripDebugLines = new string[validWheels.Count];
+
             if (!wheel.GetGroundHit(out WheelHit hit))
             {
+                surfaceGripDebugLines[i] = $"{wheel.name}: NOT GROUNDED";
                 if (shouldLog)
                     Debug.Log($"[SurfaceGrip] {name} / wheel {i} '{wheel.name}': NOT GROUNDED; default grip.", this);
                 continue;
@@ -486,6 +494,7 @@ public class Vehicle : MonoBehaviour
             }
 
             Debug.DrawLine(hit.point, hit.point + Vector3.up * 0.3f, markerColor, Time.fixedDeltaTime);
+            surfaceGripDebugLines[i] = $"{wheel.name}: {detectedSurface} | F {forwardMultiplier:0.00} / S {sidewaysMultiplier:0.00}";
 
             if (shouldLog)
             {
@@ -496,6 +505,31 @@ public class Vehicle : MonoBehaviour
         }
     }
 
+    private void OnGUI()
+    {
+        if (!Application.isPlaying || !debugSurfaceGrip || !debugSurfaceGripOnScreen)
+            return;
+
+        const float panelWidth = 390f;
+        const float lineHeight = 22f;
+        int lineCount = surfaceGripDebugLines != null ? surfaceGripDebugLines.Length : 0;
+        float panelHeight = 42f + Mathf.Max(1, lineCount) * lineHeight;
+        float x = Mathf.Max(8f, Screen.width - panelWidth - debugSurfaceGripScreenOffset.x);
+        float y = Mathf.Max(8f, Screen.height - panelHeight - debugSurfaceGripScreenOffset.y);
+
+        GUI.Box(new Rect(x, y, panelWidth, panelHeight), "SURFACE GRIP DEBUG");
+        GUILayout.BeginArea(new Rect(x + 10f, y + 24f, panelWidth - 20f, panelHeight - 28f));
+        if (surfaceGripDebugLines == null || surfaceGripDebugLines.Length == 0)
+        {
+            GUILayout.Label("Waiting for wheel contact data...");
+        }
+        else
+        {
+            for (int i = 0; i < surfaceGripDebugLines.Length; i++)
+                GUILayout.Label(surfaceGripDebugLines[i] ?? $"Wheel {i}: waiting...");
+        }
+        GUILayout.EndArea();
+    }
     private void ApplyWheelColliderTuning()
     {
         // Apply these values continuously so Inspector changes and future upgrades
