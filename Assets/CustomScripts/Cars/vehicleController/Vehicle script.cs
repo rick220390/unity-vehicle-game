@@ -116,6 +116,7 @@ public class Vehicle : MonoBehaviour
     private float[] wheelSurfaceSidewaysMultipliers;
     private bool[] wheelSurfaceIsDirt;
     private ParticleSystem[] wheelDirtDustEffects;
+    private bool usingCustomDirtDustPrefab;
     [Tooltip("Reduces brake torque when a grounded wheel is close to locking, approximating ABS.")]
     public bool useABS = true;
     [Range(0.05f, 1f)] public float absSlipThreshold = 0.35f;
@@ -461,6 +462,7 @@ public class Vehicle : MonoBehaviour
         wheelDirtDustEffects = new ParticleSystem[validWheels.Count];
 
         // Use the Inspector prefab when one is assigned; otherwise retain the procedural fallback.
+        usingCustomDirtDustPrefab = dirtDustPrefab != null;
         if (dirtDustPrefab != null)
         {
             for (int i = 0; i < validWheels.Count; i++)
@@ -469,7 +471,9 @@ public class Vehicle : MonoBehaviour
                 if (wheel == null)
                     continue;
 
-                GameObject dustObject = Instantiate(dirtDustPrefab, wheel.transform.position, Quaternion.identity, transform);
+                // Keep the prefab unparented so the vehicle root's scale cannot alter its particle size.
+                // The effect is positioned at each wheel in UpdateWheelDirtDust().
+                GameObject dustObject = Instantiate(dirtDustPrefab, wheel.transform.position, Quaternion.identity);
                 dustObject.name = $"{wheel.name}_DirtDust";
                 ParticleSystem particles = dustObject.GetComponent<ParticleSystem>();
                 if (particles == null)
@@ -482,11 +486,10 @@ public class Vehicle : MonoBehaviour
                     continue;
                 }
 
+                // Only control activation. Keep every configured prefab module value intact,
+                // including emission rate, bursts, size, lifetime, speed, colour, shape and material.
                 var main = particles.main;
                 main.playOnAwake = false;
-                var emission = particles.emission;
-                emission.enabled = true;
-                emission.rateOverTime = 0f;
                 particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 wheelDirtDustEffects[i] = particles;
             }
@@ -627,8 +630,11 @@ public class Vehicle : MonoBehaviour
             bool onDirt = i < wheelSurfaceIsDirt.Length && wheelSurfaceIsDirt[i] && grounded;
             if (!onDirt || !movingFastEnough)
             {
-                var emission = particles.emission;
-                emission.rateOverTime = 0f;
+                if (!usingCustomDirtDustPrefab)
+                {
+                    var emission = particles.emission;
+                    emission.rateOverTime = 0f;
+                }
                 if (particles.isPlaying)
                     particles.Stop(false, ParticleSystemStopBehavior.StopEmitting);
                 continue;
@@ -640,12 +646,17 @@ public class Vehicle : MonoBehaviour
                 : -transform.forward + Vector3.up * 0.65f;
             particles.transform.rotation = Quaternion.LookRotation(plumeDirection.normalized, hit.normal);
 
-            float speedFactor = Mathf.Clamp01(speed / Mathf.Max(1f, dirtDustFullEmissionSpeed));
-            float slip = Mathf.Max(Mathf.Abs(hit.forwardSlip), Mathf.Abs(hit.sidewaysSlip));
-            float slipFactor = Mathf.Clamp01(slip / 1.5f);
-            float rate = dirtDustEmissionRate * speedFactor + dirtDustSlipBoost * slipFactor;
-            var currentEmission = particles.emission;
-            currentEmission.rateOverTime = rate;
+            // Custom prefabs keep their own emission rate and bursts; the controller
+            // only starts/stops them based on the wheel's surface and vehicle speed.
+            if (!usingCustomDirtDustPrefab)
+            {
+                float speedFactor = Mathf.Clamp01(speed / Mathf.Max(1f, dirtDustFullEmissionSpeed));
+                float slip = Mathf.Max(Mathf.Abs(hit.forwardSlip), Mathf.Abs(hit.sidewaysSlip));
+                float slipFactor = Mathf.Clamp01(slip / 1.5f);
+                float rate = dirtDustEmissionRate * speedFactor + dirtDustSlipBoost * slipFactor;
+                var currentEmission = particles.emission;
+                currentEmission.rateOverTime = rate;
+            }
             if (!particles.isPlaying)
                 particles.Play();
         }
@@ -660,8 +671,11 @@ public class Vehicle : MonoBehaviour
         {
             if (particles == null)
                 continue;
-            var emission = particles.emission;
-            emission.rateOverTime = 0f;
+            if (!usingCustomDirtDustPrefab)
+            {
+                var emission = particles.emission;
+                emission.rateOverTime = 0f;
+            }
             if (particles.isPlaying)
                 particles.Stop(false, ParticleSystemStopBehavior.StopEmitting);
         }
