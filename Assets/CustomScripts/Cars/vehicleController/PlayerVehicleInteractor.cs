@@ -43,6 +43,10 @@ public float mouseSensitivity = 3f;
 public float minCameraPitch = -10f;
 public float maxCameraPitch = 65f;
 
+[Header("Cockpit Camera")]
+[Tooltip("Yaw adjustment for the cockpit view. Positive values rotate the view to the right.")]
+public float cockpitYawOffset = 12f;
+
 [Header("Driving HUD")]
 [Tooltip("Show speed, RPM, current gear and fuel level only while seated in a vehicle.")]
 public bool showDrivingTelemetry = true;
@@ -178,7 +182,7 @@ void LateUpdate()
         {
             cam.transform.SetPositionAndRotation(
                 cockpit.position,
-                cockpit.rotation
+                cockpit.rotation * Quaternion.Euler(0f, cockpitYawOffset, 0f)
             );
         }
         else
