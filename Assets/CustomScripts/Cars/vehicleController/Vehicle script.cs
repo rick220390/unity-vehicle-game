@@ -93,6 +93,8 @@ public class Vehicle : MonoBehaviour
     [Range(0.1f, 1f)] public float dirtSidewaysGripMultiplier = 0.70f;
 
     [Header("Dirt Wheel Dust")]
+    [Tooltip("Optional particle-system prefab to use for dust. If empty, the built-in procedural dust effect is used.")]
+    public GameObject dirtDustPrefab;
     [Tooltip("Creates a soft brown dust plume behind grounded wheels when they touch the painted Dirt Terrain Layer.")]
     public bool enableDirtWheelDust = true;
     [Tooltip("Minimum vehicle speed in metres per second before dirt dust appears.")]
@@ -458,6 +460,38 @@ public class Vehicle : MonoBehaviour
         wheelSurfaceIsDirt = new bool[validWheels.Count];
         wheelDirtDustEffects = new ParticleSystem[validWheels.Count];
 
+        // Use the Inspector prefab when one is assigned; otherwise retain the procedural fallback.
+        if (dirtDustPrefab != null)
+        {
+            for (int i = 0; i < validWheels.Count; i++)
+            {
+                WheelCollider wheel = validWheels[i];
+                if (wheel == null)
+                    continue;
+
+                GameObject dustObject = Instantiate(dirtDustPrefab, wheel.transform.position, Quaternion.identity, transform);
+                dustObject.name = $"{wheel.name}_DirtDust";
+                ParticleSystem particles = dustObject.GetComponent<ParticleSystem>();
+                if (particles == null)
+                    particles = dustObject.GetComponentInChildren<ParticleSystem>(true);
+
+                if (particles == null)
+                {
+                    Debug.LogWarning($"{name}: Dirt Dust Prefab '{dirtDustPrefab.name}' has no ParticleSystem component.", this);
+                    Destroy(dustObject);
+                    continue;
+                }
+
+                var main = particles.main;
+                main.playOnAwake = false;
+                var emission = particles.emission;
+                emission.enabled = true;
+                emission.rateOverTime = 0f;
+                particles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                wheelDirtDustEffects[i] = particles;
+            }
+            return;
+        }
         // Generate a soft circular texture at runtime so dust looks like a cloud,
         // not square billboard particles. No texture asset needs to be imported.
         const int textureSize = 64;
