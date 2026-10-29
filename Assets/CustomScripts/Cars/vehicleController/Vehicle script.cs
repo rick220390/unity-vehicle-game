@@ -12,6 +12,25 @@ public class Vehicle : MonoBehaviour
     public Transform cameraPoint;
     public Transform[] exitPoints;
 
+    [Header("Physical Dashboard Gauges")]
+    [Tooltip("Animate the physical speedometer and tachometer needles found under this vehicle.")]
+    public bool animateDashboardNeedles = true;
+    [Tooltip("Optional manual assignments. If empty, matching child names are found automatically, including inactive LOD variants.")]
+    public Transform[] speedPointerNeedles;
+    public Transform[] rpmPointerNeedles;
+    public bool autoFindDashboardNeedles = true;
+    [Tooltip("Local rotation axis of the gauge needles. Most dashboard needles rotate around local Z.")]
+    public Vector3 dashboardNeedleRotationAxis = Vector3.forward;
+    [Tooltip("Speed represented by the speedometer's maximum needle angle.")]
+    [Min(1f)] public float dashboardSpeedometerMaxKph = 240f;
+    [Tooltip("RPM represented by the tachometer's maximum needle angle. Set this to the redline shown on the gauge.")]
+    [Min(1f)] public float dashboardTachometerMaxRpm = 6500f;
+    [Tooltip("Needle angles are relative to each pointer's original local rotation.")]
+    public float speedPointerMinAngle = 0f;
+    public float speedPointerMaxAngle = 240f;
+    public float rpmPointerMinAngle = 0f;
+    public float rpmPointerMaxAngle = 270f;
+
     [Header("WheelCollider setup")]
     [Tooltip("Assign the four WheelColliders in matching order to Wheel Visuals. If empty, the temporary fallback controller is used.")]
     public WheelCollider[] wheelColliders;
@@ -229,6 +248,24 @@ public class Vehicle : MonoBehaviour
     private Vector3[] wheelVisualPositionOffsets;
     private Quaternion[] wheelVisualRotationOffsets;
 
+    private Vector3[] wheelVisualPositionOffsets;
+    private Quaternion[] wheelVisualRotationOffsets;
+
+    private sealed class DashboardNeedleState
+    {
+        public Transform transform;
+        public Quaternion restLocalRotation;
+
+        public DashboardNeedleState(Transform needle)
+        {
+            transform = needle;
+            restLocalRotation = needle.localRotation;
+        }
+    }
+
+    private readonly List<DashboardNeedleState> speedNeedleStates = new List<DashboardNeedleState>();
+    private readonly List<DashboardNeedleState> rpmNeedleStates = new List<DashboardNeedleState>();
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
@@ -248,6 +285,7 @@ public class Vehicle : MonoBehaviour
 
         CacheWheels();
         CacheWheelVisualOffsets();
+        CacheDashboardNeedles();
         InitializeTerrainSurfaceCache();
         InitializeWheelDirtDust();
         ConfigureWheelColliders();
@@ -752,6 +790,112 @@ public class Vehicle : MonoBehaviour
                     $"grip multipliers F={forwardMultiplier:0.00}, S={sidewaysMultiplier:0.00}; " +
                     $"WheelCollider stiffness F={wheel.forwardFriction.stiffness:0.00}, S={wheel.sidewaysFriction.stiffness:0.00}.", this);
             }
+        }
+    }
+
+    private void CacheDashboardNeedles()
+    {
+        speedNeedleStates.Clear();
+        rpmNeedleStates.Clear();
+
+        if (autoFindDashboardNeedles)
+        {
+            // Include inactive objects so each LOD variant is ready when Unity
+            // switches levels of detail. Only the visible LOD will be rendered.
+            Transform[] descendants = GetComponentsInChildren<Transform>(true);
+            foreach (Transform child in descendants)
+            {
+                if (child == transform)
+                    continue;
+
+                string normalizedName = child.name
+                    .Replace("_", "")
+                    .Replace("-", "")
+                    .Replace(" ", "")
+                    .ToLowerInvariant();
+
+                if (normalizedName.Contains("speedpointer"))
+                    AddDashboardNeedle(speedNeedleStates, child);
+                else if (normalizedName.Contains("rpmpointer"))
+                    AddDashboardNeedle(rpmNeedleStates, child);
+            }
+        }
+
+        AddAssignedDashboardNeedles(speedNeedleStates, speedPointerNeedles);
+        AddAssignedDashboardNeedles(rpmNeedleStates, rpmPointerNeedles);
+
+        if (animateDashboardNeedles &&
+            (speedNeedleStates.Count > 0 || rpmNeedleStates.Count > 0))
+        {
+            Debug.Log(
+                $"{name}: dashboard gauges ready (speed pointers: {speedNeedleStates.Count}, RPM pointers: {rpmNeedleStates.Count}).",
+                this);
+        }
+    }
+
+    private static void AddAssignedDashboardNeedles(
+        List<DashboardNeedleState> destination,
+        Transform[] assignedNeedles)
+    {
+        if (assignedNeedles == null)
+            return;
+
+        foreach (Transform needle in assignedNeedles)
+            AddDashboardNeedle(destination, needle);
+    }
+
+    private static void AddDashboardNeedle(
+        List<DashboardNeedleState> destination,
+        Transform needle)
+    {
+        if (needle == null)
+            return;
+
+        foreach (DashboardNeedleState existing in destination)
+        {
+            if (existing.transform == needle)
+                return;
+        }
+
+        destination.Add(new DashboardNeedleState(needle));
+    }
+
+    private void LateUpdate()
+    {
+        if (!animateDashboardNeedles)
+            return;
+
+        Vector3 axis = dashboardNeedleRotationAxis.sqrMagnitude > 0.0001f
+            ? dashboardNeedleRotationAxis.normalized
+            : Vector3.forward;
+
+        float speedFraction = Mathf.Clamp01(
+            (Speed * 3.6f) / Mathf.Max(1f, dashboardSpeedometerMaxKph));
+        float rpmFraction = Mathf.Clamp01(
+            EngineRpm / Mathf.Max(1f, dashboardTachometerMaxRpm));
+
+        ApplyDashboardNeedleAngle(
+            speedNeedleStates,
+            Mathf.Lerp(speedPointerMinAngle, speedPointerMaxAngle, speedFraction),
+            axis);
+
+        ApplyDashboardNeedleAngle(
+            rpmNeedleStates,
+            Mathf.Lerp(rpmPointerMinAngle, rpmPointerMaxAngle, rpmFraction),
+            axis);
+    }
+
+    private static void ApplyDashboardNeedleAngle(
+        List<DashboardNeedleState> needles,
+        float angle,
+        Vector3 axis)
+    {
+        Quaternion rotationOffset = Quaternion.AngleAxis(angle, axis);
+
+        foreach (DashboardNeedleState needle in needles)
+        {
+            if (needle.transform != null)
+                needle.transform.localRotation = needle.restLocalRotation * rotationOffset;
         }
     }
 
