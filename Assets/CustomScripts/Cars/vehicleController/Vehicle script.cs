@@ -473,11 +473,11 @@ public class Vehicle : MonoBehaviour
             main.loop = true;
             main.playOnAwake = false;
             main.duration = 5f;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.45f, 1.1f);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.7f, 1.5f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 2.0f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.32f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.28f, 0.58f);
             // Keep the particles in the same light sandy-brown range as the terrain.
-            main.startColor = new Color(0.78f, 0.62f, 0.40f, 0.62f);
+            main.startColor = new Color(0.92f, 0.90f, 0.84f, 0.82f);
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             main.maxParticles = 180;
             main.gravityModifier = -0.025f;
@@ -499,13 +499,14 @@ public class Vehicle : MonoBehaviour
             fade.SetKeys(
                 new[]
                 {
-                    new GradientColorKey(new Color(0.82f, 0.68f, 0.47f), 0f),
-                    new GradientColorKey(new Color(0.68f, 0.51f, 0.30f), 1f)
+                    new GradientColorKey(new Color(0.96f, 0.94f, 0.89f), 0f),
+                    new GradientColorKey(new Color(0.86f, 0.83f, 0.76f), 1f)
                 },
                 new[]
                 {
                     new GradientAlphaKey(0f, 0f),
-                    new GradientAlphaKey(0.48f, 0.12f),
+                    new GradientAlphaKey(0.78f, 0.10f),
+                    new GradientAlphaKey(0.62f, 0.55f),
                     new GradientAlphaKey(0f, 1f)
                 });
             color.color = fade;
