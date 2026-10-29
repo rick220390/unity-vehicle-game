@@ -46,6 +46,16 @@ public float maxCameraPitch = 65f;
 [Header("Cockpit Camera")]
 [Tooltip("Yaw adjustment for the cockpit view. Positive values rotate the view to the right.")]
 public float cockpitYawOffset = 12f;
+[Tooltip("Mouse sensitivity when looking around inside the cockpit.")]
+public float cockpitMouseSensitivity = 2.5f;
+[Tooltip("Maximum horizontal mouse-look angle to either side of the forward view.")]
+[Range(30f, 120f)] public float cockpitLookYawLimit = 85f;
+[Tooltip("Maximum vertical mouse-look angle up or down.")]
+[Range(15f, 80f)] public float cockpitLookPitchLimit = 45f;
+[Tooltip("How quickly the cockpit view settles after head movement.")]
+[Min(0.1f)] public float cockpitHeadSmooth = 5f;
+[Tooltip("Strength of subtle head movement caused by acceleration, braking and cornering.")]
+[Range(0f, 2f)] public float cockpitHeadMovement = 1f;
 
 [Header("Driving HUD")]
 [Tooltip("Show speed, RPM, current gear and fuel level only while seated in a vehicle.")]
@@ -55,6 +65,13 @@ public bool showFuelGauge = true;
 
 private float cameraYaw;
 private float cameraPitch = 15f;
+private float cockpitLookYaw;
+private float cockpitLookPitch;
+private Vector3 previousCockpitLocalVelocity;
+private bool cockpitVelocityInitialized;
+private Vector3 cockpitHeadOffset;
+private float cockpitHeadPitch;
+private float cockpitHeadRoll;
 
 private Vehicle current;
 private bool cockpitView;
@@ -178,18 +195,30 @@ void LateUpdate()
             ? current.cameraPoint
             : current.seatPoint;
 
+        // Independent mouse-look for the cockpit. The chase camera keeps its
+        // existing orbit controls when cockpit view is switched off.
+        cockpitLookYaw += Input.GetAxis("Mouse X") * cockpitMouseSensitivity;
+        cockpitLookPitch -= Input.GetAxis("Mouse Y") * cockpitMouseSensitivity;
+        cockpitLookYaw = Mathf.Clamp(cockpitLookYaw, -cockpitLookYawLimit, cockpitLookYawLimit);
+        cockpitLookPitch = Mathf.Clamp(cockpitLookPitch, -cockpitLookPitchLimit, cockpitLookPitchLimit);
+
+        UpdateCockpitHeadMovement();
+
         if (cockpit != null)
         {
-            cam.transform.SetPositionAndRotation(
-                cockpit.position,
-                cockpit.rotation * Quaternion.Euler(0f, cockpitYawOffset, 0f)
-            );
+            Quaternion baseRotation = cockpit.rotation * Quaternion.Euler(0f, cockpitYawOffset, 0f);
+            Vector3 headPosition = cockpit.position + cockpit.rotation * cockpitHeadOffset;
+            Quaternion lookRotation = baseRotation
+                * Quaternion.Euler(cockpitHeadPitch + cockpitLookPitch, cockpitLookYaw, cockpitHeadRoll);
+
+            cam.transform.SetPositionAndRotation(headPosition, lookRotation);
         }
         else
         {
+            Quaternion baseRotation = current.transform.rotation * Quaternion.Euler(0f, cockpitYawOffset, 0f);
             cam.transform.SetPositionAndRotation(
                 current.transform.position + Vector3.up,
-                current.transform.rotation
+                baseRotation * Quaternion.Euler(cockpitHeadPitch + cockpitLookPitch, cockpitLookYaw, cockpitHeadRoll)
             );
         }
 
@@ -332,6 +361,56 @@ void LateUpdate()
     }
 }
 
+// ---------------- Cockpit Head Movement ----------------
+
+void UpdateCockpitHeadMovement()
+{
+    float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+    Vector3 targetOffset = Vector3.zero;
+    float targetPitch = 0f;
+    float targetRoll = 0f;
+
+    Rigidbody vehicleBody = current != null ? current.GetComponent<Rigidbody>() : null;
+    if (vehicleBody != null && cockpitHeadMovement > 0f)
+    {
+#if UNITY_6000_0_OR_NEWER
+        Vector3 worldVelocity = vehicleBody.linearVelocity;
+#else
+        Vector3 worldVelocity = vehicleBody.velocity;
+#endif
+        Vector3 localVelocity = current.transform.InverseTransformDirection(worldVelocity);
+
+        if (cockpitVelocityInitialized)
+        {
+            Vector3 localAcceleration = (localVelocity - previousCockpitLocalVelocity) / dt;
+
+            // Inertia: the driver's head subtly shifts opposite the car's
+            // acceleration, with a small pitch response under throttle/braking.
+            targetOffset.x = Mathf.Clamp(-localAcceleration.x * 0.0025f, -0.055f, 0.055f);
+            targetOffset.z = Mathf.Clamp(-localAcceleration.z * 0.0018f, -0.045f, 0.045f);
+            targetPitch = Mathf.Clamp(-localAcceleration.z * 0.45f, -3.5f, 3.5f);
+            targetRoll = Mathf.Clamp(-localAcceleration.x * 0.7f, -4f, 4f);
+
+            // A restrained additional lean while cornering, using the vehicle's
+            // yaw rate. Keep it small so the view remains comfortable to drive.
+            targetRoll += Mathf.Clamp(-vehicleBody.angularVelocity.y * 1.5f, -3f, 3f);
+            targetRoll = Mathf.Clamp(targetRoll, -5f, 5f);
+        }
+
+        previousCockpitLocalVelocity = localVelocity;
+        cockpitVelocityInitialized = true;
+    }
+    else
+    {
+        cockpitVelocityInitialized = false;
+    }
+
+    float blend = 1f - Mathf.Exp(-Mathf.Max(0.1f, cockpitHeadSmooth) * dt);
+    cockpitHeadOffset = Vector3.Lerp(cockpitHeadOffset, targetOffset * cockpitHeadMovement, blend);
+    cockpitHeadPitch = Mathf.Lerp(cockpitHeadPitch, targetPitch * cockpitHeadMovement, blend);
+    cockpitHeadRoll = Mathf.Lerp(cockpitHeadRoll, targetRoll * cockpitHeadMovement, blend);
+}
+
 // ---------------- Finding a Vehicle ----------------
 
 VehicleDoor FindNearbyDoor()
@@ -392,6 +471,12 @@ void Enter(Vehicle v, Transform seatPointOverride)
     cockpitView = false;
     cameraYaw = 0f;
     cameraPitch = 15f;
+    cockpitLookYaw = 0f;
+    cockpitLookPitch = 0f;
+    cockpitHeadOffset = Vector3.zero;
+    cockpitHeadPitch = 0f;
+    cockpitHeadRoll = 0f;
+    cockpitVelocityInitialized = false;
 
     originalParent = transform.parent;
     originalLocalScale = transform.localScale;
