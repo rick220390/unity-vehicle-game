@@ -458,6 +458,56 @@ public class Vehicle : MonoBehaviour
         wheelSurfaceIsDirt = new bool[validWheels.Count];
         wheelDirtDustEffects = new ParticleSystem[validWheels.Count];
 
+        // Generate a soft circular texture at runtime so dust looks like a cloud,
+        // not square billboard particles. No texture asset needs to be imported.
+        const int textureSize = 64;
+        Texture2D softDustTexture = new Texture2D(textureSize, textureSize, TextureFormat.RGBA32, false);
+        softDustTexture.name = "Runtime_Soft_Dirt_Dust_Texture";
+        softDustTexture.wrapMode = TextureWrapMode.Clamp;
+        softDustTexture.filterMode = FilterMode.Bilinear;
+        Color[] pixels = new Color[textureSize * textureSize];
+        Vector2 centre = new Vector2((textureSize - 1) * 0.5f, (textureSize - 1) * 0.5f);
+        float radius = (textureSize - 1) * 0.5f;
+
+        for (int y = 0; y < textureSize; y++)
+        {
+            for (int x = 0; x < textureSize; x++)
+            {
+                float distance = Vector2.Distance(new Vector2(x, y), centre) / radius;
+                float edge = Mathf.Clamp01((1f - distance) / 0.42f);
+                // Smooth radial alpha: solid enough in the middle, feathered at the edge.
+                float alpha = edge * edge * (3f - 2f * edge);
+                pixels[y * textureSize + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        softDustTexture.SetPixels(pixels);
+        softDustTexture.Apply(false, true);
+
+        Shader dustShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        if (dustShader == null)
+            dustShader = Shader.Find("Particles/Standard Unlit");
+        if (dustShader == null)
+            dustShader = Shader.Find("Legacy Shaders/Particles/Alpha Blended");
+        if (dustShader == null)
+            dustShader = Shader.Find("Sprites/Default");
+
+        Material dustMaterial = null;
+        if (dustShader != null)
+        {
+            dustMaterial = new Material(dustShader);
+            dustMaterial.name = "Runtime_Soft_Sandy_Dust_Material";
+
+            if (dustMaterial.HasProperty("_BaseMap"))
+                dustMaterial.SetTexture("_BaseMap", softDustTexture);
+            if (dustMaterial.HasProperty("_MainTex"))
+                dustMaterial.SetTexture("_MainTex", softDustTexture);
+            if (dustMaterial.HasProperty("_BaseColor"))
+                dustMaterial.SetColor("_BaseColor", Color.white);
+            if (dustMaterial.HasProperty("_Color"))
+                dustMaterial.SetColor("_Color", Color.white);
+        }
+
         for (int i = 0; i < validWheels.Count; i++)
         {
             WheelCollider wheel = validWheels[i];
@@ -474,13 +524,12 @@ public class Vehicle : MonoBehaviour
             main.playOnAwake = false;
             main.duration = 5f;
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.9f, 1.8f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 2.0f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.42f, 0.9f);
-            // Keep the particles in the same light sandy-brown range as the terrain.
-            main.startColor = new Color(0.68f, 0.57f, 0.43f, 0.48f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.45f, 1.5f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.65f, 1.25f);
+            main.startColor = new Color(0.70f, 0.58f, 0.43f, 0.92f);
             main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.maxParticles = 180;
-            main.gravityModifier = -0.025f;
+            main.maxParticles = 240;
+            main.gravityModifier = -0.015f;
 
             var emission = particles.emission;
             emission.enabled = true;
@@ -489,9 +538,9 @@ public class Vehicle : MonoBehaviour
             var shape = particles.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.Cone;
-            shape.angle = 24f;
-            shape.radius = 0.16f;
-            shape.length = 0.12f;
+            shape.angle = 30f;
+            shape.radius = 0.22f;
+            shape.length = 0.16f;
 
             var color = particles.colorOverLifetime;
             color.enabled = true;
@@ -500,13 +549,13 @@ public class Vehicle : MonoBehaviour
                 new[]
                 {
                     new GradientColorKey(new Color(0.76f, 0.65f, 0.50f), 0f),
-                    new GradientColorKey(new Color(0.58f, 0.49f, 0.38f), 1f)
+                    new GradientColorKey(new Color(0.61f, 0.51f, 0.39f), 1f)
                 },
                 new[]
                 {
                     new GradientAlphaKey(0f, 0f),
-                    new GradientAlphaKey(0.42f, 0.10f),
-                    new GradientAlphaKey(0.30f, 0.55f),
+                    new GradientAlphaKey(0.88f, 0.10f),
+                    new GradientAlphaKey(0.76f, 0.55f),
                     new GradientAlphaKey(0f, 1f)
                 });
             color.color = fade;
@@ -514,27 +563,8 @@ public class Vehicle : MonoBehaviour
             var renderer = particles.GetComponent<ParticleSystemRenderer>();
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
             renderer.sortingFudge = 1f;
-
-            // Explicitly assign a particle-compatible material. Unity's default particle
-            // material can render black/white in projects using a different render pipeline.
-            Shader dustShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (dustShader == null)
-                dustShader = Shader.Find("Particles/Standard Unlit");
-            if (dustShader == null)
-                dustShader = Shader.Find("Legacy Shaders/Particles/Alpha Blended");
-            if (dustShader == null)
-                dustShader = Shader.Find("Sprites/Default");
-
-            if (dustShader != null)
-            {
-                Material dustMaterial = new Material(dustShader);
-                dustMaterial.name = "Runtime_Sandy_Dirt_Dust";
-                if (dustMaterial.HasProperty("_BaseColor"))
-                    dustMaterial.SetColor("_BaseColor", Color.white);
-                if (dustMaterial.HasProperty("_Color"))
-                    dustMaterial.SetColor("_Color", Color.white);
+            if (dustMaterial != null)
                 renderer.material = dustMaterial;
-            }
 
             wheelDirtDustEffects[i] = particles;
         }
