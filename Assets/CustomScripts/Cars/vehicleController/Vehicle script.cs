@@ -248,9 +248,6 @@ public class Vehicle : MonoBehaviour
     private Vector3[] wheelVisualPositionOffsets;
     private Quaternion[] wheelVisualRotationOffsets;
 
-    private Vector3[] wheelVisualPositionOffsets;
-    private Quaternion[] wheelVisualRotationOffsets;
-
     private sealed class DashboardNeedleState
     {
         public Transform transform;
