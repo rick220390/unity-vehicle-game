@@ -536,7 +536,8 @@ public class Vehicle : MonoBehaviour
             if (particles == null || wheel == null)
                 continue;
 
-            bool onDirt = i < wheelSurfaceIsDirt.Length && wheelSurfaceIsDirt[i] && wheel.GetGroundHit(out WheelHit hit);
+            bool grounded = wheel.GetGroundHit(out WheelHit hit);
+            bool onDirt = i < wheelSurfaceIsDirt.Length && wheelSurfaceIsDirt[i] && grounded;
             if (!onDirt || !movingFastEnough)
             {
                 var emission = particles.emission;
