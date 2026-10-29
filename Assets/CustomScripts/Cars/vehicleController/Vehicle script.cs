@@ -375,6 +375,11 @@ public class Vehicle : MonoBehaviour
 
         ResetWheelSurfaceGripMultipliers();
 
+        // Update the on-screen diagnostics even if Terrain grip has not been
+        // configured yet, so the panel can help diagnose missing assignments.
+        if (debugSurfaceGrip || debugSurfaceGripOnScreen)
+            DrawAndLogSurfaceGripDebug();
+
         if (surfaceTerrainData == null || surfaceTerrainCollider == null ||
             cachedTerrainAlphamaps == null || cachedTerrainLayers == null)
             return;
@@ -427,8 +432,6 @@ public class Vehicle : MonoBehaviour
             }
         }
 
-        if (debugSurfaceGrip)
-            DrawAndLogSurfaceGripDebug();
     }
 
     private void DrawAndLogSurfaceGripDebug()
@@ -507,7 +510,7 @@ public class Vehicle : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!Application.isPlaying || !debugSurfaceGrip || !debugSurfaceGripOnScreen)
+        if (!Application.isPlaying || !debugSurfaceGripOnScreen)
             return;
 
         const float panelWidth = 390f;
