@@ -69,6 +69,13 @@ public class Vehicle : MonoBehaviour
     [Range(0.1f, 5f)] public float rearSidewaysGrip = 0.55f;
     [Range(0.1f, 5f)] public float handbrakeRearGrip = 0.55f;
 
+    [Header("Terrain Surface Grip Debug")]
+    [Tooltip("Draws wheel contact markers and shows detected surfaces while playing.")]
+    public bool debugSurfaceGrip;
+    [Tooltip("Writes one diagnostic line per wheel roughly once per second.")]
+    public bool debugSurfaceGripToConsole;
+    private float nextSurfaceGripDebugTime;
+
     [Header("Terrain Surface Grip")]
     [Tooltip("Terrain whose painted layers control grip. If empty, the active Terrain is used.")]
     public Terrain surfaceTerrain;
@@ -413,6 +420,78 @@ public class Vehicle : MonoBehaviour
             {
                 wheelSurfaceForwardMultipliers[i] = dirtForwardGripMultiplier;
                 wheelSurfaceSidewaysMultipliers[i] = dirtSidewaysGripMultiplier;
+            }
+        }
+
+        if (debugSurfaceGrip)
+            DrawAndLogSurfaceGripDebug();
+    }
+
+    private void DrawAndLogSurfaceGripDebug()
+    {
+        bool shouldLog = debugSurfaceGripToConsole && Time.time >= nextSurfaceGripDebugTime;
+        if (shouldLog)
+            nextSurfaceGripDebugTime = Time.time + 1f;
+
+        for (int i = 0; i < validWheels.Count; i++)
+        {
+            WheelCollider wheel = validWheels[i];
+            if (wheel == null)
+                continue;
+
+            float forwardMultiplier = wheelSurfaceForwardMultipliers != null && i < wheelSurfaceForwardMultipliers.Length
+                ? wheelSurfaceForwardMultipliers[i] : 1f;
+            float sidewaysMultiplier = wheelSurfaceSidewaysMultipliers != null && i < wheelSurfaceSidewaysMultipliers.Length
+                ? wheelSurfaceSidewaysMultipliers[i] : 1f;
+
+            if (!wheel.GetGroundHit(out WheelHit hit))
+            {
+                if (shouldLog)
+                    Debug.Log($"[SurfaceGrip] {name} / wheel {i} '{wheel.name}': NOT GROUNDED; default grip.", this);
+                continue;
+            }
+
+            string detectedSurface = hit.collider != null ? $"Non-Terrain: {hit.collider.name}" : "Collider is null";
+            string layerDetails = "";
+            Color markerColor = Color.cyan;
+
+            if (hit.collider != null && hit.collider == surfaceTerrainCollider &&
+                surfaceTerrainData != null && cachedTerrainAlphamaps != null && cachedTerrainLayers != null)
+            {
+                Vector3 localPoint = surfaceTerrain.transform.InverseTransformPoint(hit.point);
+                Vector3 size = surfaceTerrainData.size;
+                float nx = size.x > 0f ? Mathf.Clamp01(localPoint.x / size.x) : 0f;
+                float nz = size.z > 0f ? Mathf.Clamp01(localPoint.z / size.z) : 0f;
+                int ax = Mathf.Clamp(Mathf.RoundToInt(nx * (surfaceTerrainData.alphamapWidth - 1)), 0, surfaceTerrainData.alphamapWidth - 1);
+                int az = Mathf.Clamp(Mathf.RoundToInt(nz * (surfaceTerrainData.alphamapHeight - 1)), 0, surfaceTerrainData.alphamapHeight - 1);
+
+                int dominantLayer = -1;
+                float dominantWeight = 0f;
+                for (int layer = 0; layer < cachedTerrainLayers.Length; layer++)
+                {
+                    float weight = cachedTerrainAlphamaps[az, ax, layer];
+                    if (weight > dominantWeight)
+                    {
+                        dominantWeight = weight;
+                        dominantLayer = layer;
+                    }
+                }
+
+                detectedSurface = dominantLayer >= 0 && cachedTerrainLayers[dominantLayer] != null
+                    ? $"Terrain layer: {cachedTerrainLayers[dominantLayer].name}"
+                    : "Terrain layer: NONE";
+                layerDetails = $" | dominant paint weight={dominantWeight:P0}, grass index={grassTerrainLayerIndex}, dirt index={dirtTerrainLayerIndex}";
+                markerColor = dominantLayer == grassTerrainLayerIndex ? Color.green :
+                    dominantLayer == dirtTerrainLayerIndex ? new Color(0.6f, 0.35f, 0.1f) : Color.yellow;
+            }
+
+            Debug.DrawLine(hit.point, hit.point + Vector3.up * 0.3f, markerColor, Time.fixedDeltaTime);
+
+            if (shouldLog)
+            {
+                Debug.Log($"[SurfaceGrip] {name} / wheel {i} '{wheel.name}': {detectedSurface}{layerDetails}; " +
+                    $"grip multipliers F={forwardMultiplier:0.00}, S={sidewaysMultiplier:0.00}; " +
+                    $"WheelCollider stiffness F={wheel.forwardFriction.stiffness:0.00}, S={wheel.sidewaysFriction.stiffness:0.00}.", this);
             }
         }
     }
