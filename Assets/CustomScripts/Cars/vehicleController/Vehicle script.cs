@@ -510,18 +510,24 @@ public class Vehicle : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!Application.isPlaying || !debugSurfaceGripOnScreen)
+        // Only the vehicle currently being driven should draw this diagnostic.
+        // Otherwise every parked vehicle with the debug option enabled draws an
+        // identical panel on top of the player's panel.
+        if (!Application.isPlaying || !debugSurfaceGripOnScreen || !HasDriver)
             return;
 
-        const float panelWidth = 390f;
-        const float lineHeight = 22f;
+        const float panelWidth = 460f;
+        const float lineHeight = 24f;
         int lineCount = surfaceGripDebugLines != null ? surfaceGripDebugLines.Length : 0;
-        float panelHeight = 42f + Mathf.Max(1, lineCount) * lineHeight;
-        float x = Mathf.Max(8f, Screen.width - panelWidth - debugSurfaceGripScreenOffset.x);
-        float y = Mathf.Max(8f, Screen.height - panelHeight - debugSurfaceGripScreenOffset.y);
+        float panelHeight = 46f + Mathf.Max(1, lineCount) * lineHeight;
+
+        // Keep the temporary diagnostic in a fixed top-left position so it does
+        // not collide with the bottom-right fuel/HUD elements.
+        const float x = 18f;
+        const float y = 18f;
 
         GUI.Box(new Rect(x, y, panelWidth, panelHeight), "SURFACE GRIP DEBUG");
-        GUILayout.BeginArea(new Rect(x + 10f, y + 24f, panelWidth - 20f, panelHeight - 28f));
+        GUILayout.BeginArea(new Rect(x + 10f, y + 26f, panelWidth - 20f, panelHeight - 30f));
         if (surfaceGripDebugLines == null || surfaceGripDebugLines.Length == 0)
         {
             GUILayout.Label("Waiting for wheel contact data...");
