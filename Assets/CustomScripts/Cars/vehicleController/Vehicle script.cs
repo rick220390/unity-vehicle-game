@@ -68,6 +68,27 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Lateral grip for non-steering/rear wheels. Lower values make a rear-wheel-drive car easier to slide.")]
     [Range(0.1f, 5f)] public float rearSidewaysGrip = 0.55f;
     [Range(0.1f, 5f)] public float handbrakeRearGrip = 0.55f;
+
+    [Header("Terrain Surface Grip")]
+    [Tooltip("Terrain whose painted layers control grip. If empty, the active Terrain is used.")]
+    public Terrain surfaceTerrain;
+    [Tooltip("Assign the Grass Terrain Layer asset used by the Terrain.")]
+    public TerrainLayer grassTerrainLayer;
+    [Tooltip("Assign the Dirt Terrain Layer asset used by the Terrain.")]
+    public TerrainLayer dirtTerrainLayer;
+    [Range(0.1f, 1f)] public float grassForwardGripMultiplier = 0.65f;
+    [Range(0.1f, 1f)] public float grassSidewaysGripMultiplier = 0.55f;
+    [Range(0.1f, 1f)] public float dirtForwardGripMultiplier = 0.75f;
+    [Range(0.1f, 1f)] public float dirtSidewaysGripMultiplier = 0.70f;
+
+    private TerrainData surfaceTerrainData;
+    private TerrainCollider surfaceTerrainCollider;
+    private TerrainLayer[] cachedTerrainLayers;
+    private float[,,] cachedTerrainAlphamaps;
+    private int grassTerrainLayerIndex = -1;
+    private int dirtTerrainLayerIndex = -1;
+    private float[] wheelSurfaceForwardMultipliers;
+    private float[] wheelSurfaceSidewaysMultipliers;
     [Tooltip("Reduces brake torque when a grounded wheel is close to locking, approximating ABS.")]
     public bool useABS = true;
     [Range(0.05f, 1f)] public float absSlipThreshold = 0.35f;
@@ -199,6 +220,7 @@ public class Vehicle : MonoBehaviour
 
         CacheWheels();
         CacheWheelVisualOffsets();
+        InitializeTerrainSurfaceCache();
         ConfigureWheelColliders();
     }
 
@@ -271,6 +293,130 @@ public class Vehicle : MonoBehaviour
         ApplyWheelColliderTuning();
     }
 
+    private void InitializeTerrainSurfaceCache()
+    {
+        if (surfaceTerrain == null)
+            surfaceTerrain = Terrain.activeTerrain;
+
+        if (surfaceTerrain == null)
+            return;
+
+        surfaceTerrainData = surfaceTerrain.terrainData;
+        surfaceTerrainCollider = surfaceTerrain.GetComponent<TerrainCollider>();
+        if (surfaceTerrainData == null || surfaceTerrainCollider == null)
+            return;
+
+        cachedTerrainLayers = surfaceTerrainData.terrainLayers;
+        grassTerrainLayerIndex = FindTerrainLayerIndex(grassTerrainLayer);
+        dirtTerrainLayerIndex = FindTerrainLayerIndex(dirtTerrainLayer);
+
+        // Cache painted weights once rather than allocating a new alphamap array
+        // for every wheel on every physics step.
+        cachedTerrainAlphamaps = surfaceTerrainData.GetAlphamaps(
+            0, 0, surfaceTerrainData.alphamapWidth, surfaceTerrainData.alphamapHeight);
+
+        wheelSurfaceForwardMultipliers = new float[validWheels.Count];
+        wheelSurfaceSidewaysMultipliers = new float[validWheels.Count];
+        ResetWheelSurfaceGripMultipliers();
+
+        if ((grassTerrainLayer != null && grassTerrainLayerIndex < 0) ||
+            (dirtTerrainLayer != null && dirtTerrainLayerIndex < 0))
+        {
+            Debug.LogWarning($"{name}: one or more assigned Terrain Layer assets are not present on Terrain '{surfaceTerrain.name}'. Surface grip will use default values until the layers are assigned correctly.", this);
+        }
+    }
+
+    private int FindTerrainLayerIndex(TerrainLayer targetLayer)
+    {
+        if (targetLayer == null || cachedTerrainLayers == null)
+            return -1;
+
+        for (int i = 0; i < cachedTerrainLayers.Length; i++)
+        {
+            if (cachedTerrainLayers[i] == targetLayer)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private void ResetWheelSurfaceGripMultipliers()
+    {
+        if (wheelSurfaceForwardMultipliers == null || wheelSurfaceSidewaysMultipliers == null)
+            return;
+
+        for (int i = 0; i < wheelSurfaceForwardMultipliers.Length; i++)
+        {
+            wheelSurfaceForwardMultipliers[i] = 1f;
+            wheelSurfaceSidewaysMultipliers[i] = 1f;
+        }
+    }
+
+    private void UpdateWheelSurfaceGripMultipliers()
+    {
+        if (wheelSurfaceForwardMultipliers == null ||
+            wheelSurfaceSidewaysMultipliers == null ||
+            wheelSurfaceForwardMultipliers.Length != validWheels.Count)
+        {
+            wheelSurfaceForwardMultipliers = new float[validWheels.Count];
+            wheelSurfaceSidewaysMultipliers = new float[validWheels.Count];
+        }
+
+        ResetWheelSurfaceGripMultipliers();
+
+        if (surfaceTerrainData == null || surfaceTerrainCollider == null ||
+            cachedTerrainAlphamaps == null || cachedTerrainLayers == null)
+            return;
+
+        for (int i = 0; i < validWheels.Count; i++)
+        {
+            WheelCollider wheel = validWheels[i];
+            if (wheel == null || !wheel.GetGroundHit(out WheelHit hit))
+                continue;
+
+            // Road objects and all non-Terrain colliders keep the car's original grip.
+            if (hit.collider != surfaceTerrainCollider)
+                continue;
+
+            Vector3 terrainLocalPoint = surfaceTerrain.transform.InverseTransformPoint(hit.point);
+            Vector3 terrainSize = surfaceTerrainData.size;
+            if (terrainSize.x <= 0f || terrainSize.z <= 0f)
+                continue;
+
+            float normalizedX = Mathf.Clamp01(terrainLocalPoint.x / terrainSize.x);
+            float normalizedZ = Mathf.Clamp01(terrainLocalPoint.z / terrainSize.z);
+            int alphaX = Mathf.Clamp(
+                Mathf.RoundToInt(normalizedX * (surfaceTerrainData.alphamapWidth - 1)),
+                0, surfaceTerrainData.alphamapWidth - 1);
+            int alphaY = Mathf.Clamp(
+                Mathf.RoundToInt(normalizedZ * (surfaceTerrainData.alphamapHeight - 1)),
+                0, surfaceTerrainData.alphamapHeight - 1);
+
+            int dominantLayer = -1;
+            float dominantWeight = 0f;
+            for (int layer = 0; layer < cachedTerrainLayers.Length; layer++)
+            {
+                float weight = cachedTerrainAlphamaps[alphaY, alphaX, layer];
+                if (weight > dominantWeight)
+                {
+                    dominantWeight = weight;
+                    dominantLayer = layer;
+                }
+            }
+
+            if (dominantLayer == grassTerrainLayerIndex && grassTerrainLayerIndex >= 0)
+            {
+                wheelSurfaceForwardMultipliers[i] = grassForwardGripMultiplier;
+                wheelSurfaceSidewaysMultipliers[i] = grassSidewaysGripMultiplier;
+            }
+            else if (dominantLayer == dirtTerrainLayerIndex && dirtTerrainLayerIndex >= 0)
+            {
+                wheelSurfaceForwardMultipliers[i] = dirtForwardGripMultiplier;
+                wheelSurfaceSidewaysMultipliers[i] = dirtSidewaysGripMultiplier;
+            }
+        }
+    }
+
     private void ApplyWheelColliderTuning()
     {
         // Apply these values continuously so Inspector changes and future upgrades
@@ -289,14 +435,19 @@ public class Vehicle : MonoBehaviour
             spring.damper = Mathf.Max(0f, suspensionDamper);
             wheel.suspensionSpring = spring;
 
+            float forwardSurfaceMultiplier = wheelSurfaceForwardMultipliers != null &&
+                i < wheelSurfaceForwardMultipliers.Length ? wheelSurfaceForwardMultipliers[i] : 1f;
+            float sidewaysSurfaceMultiplier = wheelSurfaceSidewaysMultipliers != null &&
+                i < wheelSurfaceSidewaysMultipliers.Length ? wheelSurfaceSidewaysMultipliers[i] : 1f;
+
             WheelFrictionCurve forward = wheel.forwardFriction;
-            forward.stiffness = Mathf.Max(0.01f, forwardGrip);
+            forward.stiffness = Mathf.Max(0.01f, forwardGrip * forwardSurfaceMultiplier);
             wheel.forwardFriction = forward;
 
             WheelFrictionCurve sideways = wheel.sidewaysFriction;
             bool frontWheel = ContainsIndex(steeringWheelIndexes, i);
-            sideways.stiffness = Mathf.Max(0.01f,
-                frontWheel ? frontSidewaysGrip : rearSidewaysGrip);
+            float baseSidewaysGrip = frontWheel ? frontSidewaysGrip : rearSidewaysGrip;
+            sideways.stiffness = Mathf.Max(0.01f, baseSidewaysGrip * sidewaysSurfaceMultiplier);
             wheel.sidewaysFriction = sideways;
         }
     }
@@ -345,10 +496,13 @@ public class Vehicle : MonoBehaviour
         debugHasDriver = HasDriver;
         debugUsingWheelColliders = validWheels.Count > 0;
 
-        // Keep WheelCollider physics synchronized with live tuning values.
-        // This also gives future upgrades one authoritative path to apply changes.
+        // Read each wheel's painted Terrain surface before applying the base
+        // WheelCollider settings. Non-Terrain road colliders retain default grip.
         if (validWheels.Count > 0)
+        {
+            UpdateWheelSurfaceGripMultipliers();
             ApplyWheelColliderTuning();
+        }
 
         UpdateDrivetrain(Time.fixedDeltaTime);
 
@@ -492,9 +646,11 @@ public class Vehicle : MonoBehaviour
             // is reduced further under handbrake to allow controllable oversteer.
             WheelFrictionCurve sideways = wheel.sidewaysFriction;
             float baseGrip = isSteeringWheel ? frontSidewaysGrip : rearSidewaysGrip;
-            float targetGrip = HasDriver && Handbrake && isRearWheel
-                ? baseGrip * handbrakeRearGrip
-                : baseGrip;
+            float surfaceMultiplier = wheelSurfaceSidewaysMultipliers != null &&
+                i < wheelSurfaceSidewaysMultipliers.Length ? wheelSurfaceSidewaysMultipliers[i] : 1f;
+            float targetGrip = baseGrip * surfaceMultiplier;
+            if (HasDriver && Handbrake && isRearWheel)
+                targetGrip *= handbrakeRearGrip;
             sideways.stiffness = Mathf.MoveTowards(sideways.stiffness, targetGrip, 3f * dt);
             wheel.sidewaysFriction = sideways;
         }
