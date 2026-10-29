@@ -10,6 +10,7 @@ public class PlayerVehicleInteractor : MonoBehaviour
 [Header("Input")]
 public KeyCode interactKey = KeyCode.F;
 public KeyCode handbrakeKey = KeyCode.Space;
+public KeyCode cameraToggleKey = KeyCode.V;
 
 [Header("Enter / Exit")]
 public float enterRange = 3f;
@@ -36,6 +37,7 @@ private float cameraYaw;
 private float cameraPitch = 15f;
 
 private Vehicle current;
+private bool cockpitView;
 private vThirdPersonCamera invectorCam;
 private Transform originalParent;
 private Rigidbody rb;
@@ -81,6 +83,10 @@ void Update()
     }
     else
     {
+        // Switch between the existing chase camera and the vehicle's cockpit point.
+        if (Input.GetKeyDown(cameraToggleKey))
+            cockpitView = !cockpitView;
+
         // Vehicle driving controls.
         current.SetInput(
             Input.GetAxis("Vertical"),
@@ -103,7 +109,33 @@ void LateUpdate()
     if (current == null || cam == null)
         return;
 
-    // Rotate the camera with the mouse.
+    // Cockpit view follows the vehicle's assigned camera point. Configure
+    // Vehicle.cameraPoint on each car prefab for the correct driver eye position.
+    if (cockpitView)
+    {
+        Transform cockpit = current.cameraPoint != null
+            ? current.cameraPoint
+            : current.seatPoint;
+
+        if (cockpit != null)
+        {
+            cam.transform.SetPositionAndRotation(
+                cockpit.position,
+                cockpit.rotation
+            );
+        }
+        else
+        {
+            cam.transform.SetPositionAndRotation(
+                current.transform.position + Vector3.up,
+                current.transform.rotation
+            );
+        }
+
+        return;
+    }
+
+    // Rotate the chase camera with the mouse.
     cameraYaw += Input.GetAxis("Mouse X") * mouseSensitivity;
     cameraPitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
 
@@ -198,7 +230,8 @@ void Enter(Vehicle v)
 
     current = v;
 
-    // Reset the camera when entering the vehicle.
+    // Start in chase view whenever a vehicle is entered.
+    cockpitView = false;
     cameraYaw = 0f;
     cameraPitch = 15f;
 
@@ -265,6 +298,7 @@ void TryExit()
 
     current.Release();
     current = null;
+    cockpitView = false;
 }
 
 Vector3 FindExitPosition(Vehicle v)
@@ -412,7 +446,7 @@ void OnGUI()
     if (messageTimer > 0f)
         text = message;
     else if (current != null)
-        text = $"[{interactKey}] Exit    [Space] Handbrake";
+        text = $"[{interactKey}] Exit    [Space] Handbrake    [{cameraToggleKey}] {(cockpitView ? "External view" : "Cockpit view")}";
     else if (nearby != null)
         text = $"[{interactKey}] Enter";
 
