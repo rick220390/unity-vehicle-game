@@ -31,6 +31,9 @@ public class VehicleDoor : MonoBehaviour
     [Tooltip("Optional seat position used when entering through this door. If empty, Vehicle.seatPoint is used.")]
     public Transform seatPointOverride;
 
+    [Tooltip("Empty transform placed just outside this door at the character's standing position. Rotate it so its forward direction faces into the car.")]
+    public Transform entryPoint;
+
     [Header("Door Role")]
     public DoorRole role = DoorRole.Driver;
 
