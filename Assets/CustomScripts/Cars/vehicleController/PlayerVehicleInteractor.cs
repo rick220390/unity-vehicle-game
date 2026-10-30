@@ -733,15 +733,21 @@ IEnumerator TryExitThroughDoor()
         yield break;
     }
 
-    // Check that an exit position exists before opening the door.
-    if (!TryFindExitPosition(current, out _))
+    Vehicle exitingVehicle = current;
+    VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
+
+    // A configured doorway marker is the preferred exit location. Only fall
+    // back to the vehicle's generic exit-point search when that marker is absent
+    // or obstructed.
+    bool doorwayIsClear = driverDoor != null &&
+        driverDoor.entryPoint != null &&
+        IsSpotFree(driverDoor.entryPoint.position, exitingVehicle);
+
+    if (!doorwayIsClear && !TryFindExitPosition(exitingVehicle, out _))
     {
         Say("No safe place to exit here");
         yield break;
     }
-
-    Vehicle exitingVehicle = current;
-    VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
 
     // Prefer the same doorway marker used for entry so the exit animation starts
     // at the correct height and facing direction.
@@ -769,14 +775,11 @@ IEnumerator TryExitThroughDoor()
             : Quaternion.identity;
     }
 
-    // Recheck after positioning is selected, then animate the real door and
-    // character together while Invector movement and player physics remain disabled.
+    // The exit animation starts with the character seated inside the vehicle.
+    // Keep the player attached to the seat while the door and Mixamo animation
+    // run together; move them outside only after the animation has completed.
     if (current != exitingVehicle)
         yield break;
-
-    transform.SetParent(originalParent, true);
-    transform.SetPositionAndRotation(exitPosition, exitRotation);
-    transform.localScale = originalLocalScale;
 
     if (driverDoor != null)
         driverDoor.OpenDoor();
@@ -786,6 +789,10 @@ IEnumerator TryExitThroughDoor()
         exitingStateName,
         exitAnimationFallback
     );
+
+    transform.SetParent(originalParent, true);
+    transform.SetPositionAndRotation(exitPosition, exitRotation);
+    transform.localScale = originalLocalScale;
 
     // The character has now completed the exit animation. Restore normal control.
     if (vehicleAnimator != null && vehicleAnimatorLayer >= 0)
