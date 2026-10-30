@@ -114,6 +114,8 @@ private bool invectorCameraWasEnabled;
 private bool playerRigidbodyWasKinematic;
 private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
+private bool handIkActive;
+private float handIkCurrentWeight;
 
 private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
@@ -162,6 +164,47 @@ invectorCam = FindObjectOfType<vThirdPersonCamera>();
 
     if (cam == null)
         cam = Camera.main;
+}
+
+void OnAnimatorIK(int layerIndex)
+{
+    // Unity calls this only for Animator layers with IK Pass enabled.
+    if (vehicleAnimator == null || layerIndex != vehicleAnimatorLayer)
+        return;
+
+    float targetWeight = current != null && handIkActive
+        ? current.driverHandIkWeight
+        : 0f;
+    handIkCurrentWeight = Mathf.MoveTowards(
+        handIkCurrentWeight,
+        targetWeight,
+        8f * Time.deltaTime
+    );
+
+    ApplyHandIk(AvatarIKGoal.LeftHand, AvatarIKHint.LeftElbow,
+        current != null ? current.driverLeftHandTarget : null,
+        current != null ? current.driverLeftElbowHint : null);
+    ApplyHandIk(AvatarIKGoal.RightHand, AvatarIKHint.RightElbow,
+        current != null ? current.driverRightHandTarget : null,
+        current != null ? current.driverRightElbowHint : null);
+}
+
+void ApplyHandIk(AvatarIKGoal hand, AvatarIKHint elbow, Transform handTarget, Transform elbowHint)
+{
+    float weight = handTarget != null ? handIkCurrentWeight : 0f;
+    vehicleAnimator.SetIKPositionWeight(hand, weight);
+    vehicleAnimator.SetIKRotationWeight(hand, weight);
+
+    if (handTarget != null)
+    {
+        vehicleAnimator.SetIKPosition(hand, handTarget.position);
+        vehicleAnimator.SetIKRotation(hand, handTarget.rotation);
+    }
+
+    float hintWeight = elbowHint != null ? weight : 0f;
+    vehicleAnimator.SetIKHintPositionWeight(elbow, hintWeight);
+    if (elbowHint != null)
+        vehicleAnimator.SetIKHintPosition(elbow, elbowHint.position);
 }
 
 void Update()
@@ -514,7 +557,9 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         yield break;
 
     // Prepare the player and reserve the vehicle before either animation starts.
+    handIkActive = false;
     EnterReserved(targetVehicle, door.seatPointOverride);
+    handIkActive = false;
 
     // Start the character at a dedicated marker beside the driver's door.
     // The marker's forward direction should face the car/seat.
@@ -715,6 +760,7 @@ void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alig
     transform.SetParent(seat, false);
     transform.localPosition = positionOffset;
     transform.localRotation = Quaternion.Euler(rotationOffset);
+    handIkActive = true;
 }
 
 bool HasAnimatorTrigger(string triggerName)
@@ -866,6 +912,9 @@ IEnumerator TryExitThroughDoor()
             ? Quaternion.LookRotation(flatFwd, Vector3.up)
             : Quaternion.identity;
     }
+
+    // Release the wheel before the exit animation starts.
+    handIkActive = false;
 
     // Detach immediately when F is pressed, preserving the player's current
     // world pose. The exit animation must no longer inherit the vehicle's motion.
