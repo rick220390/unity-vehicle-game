@@ -107,6 +107,25 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Choose which hand operates the gear lever. Left is typical for right-hand-drive cars; Right is typical for left-hand-drive cars.")]
     public GearShiftHandSide gearShiftHandSide = GearShiftHandSide.Left;
 
+    [Header("Driver Foot IK")]
+    [Tooltip("Resting position for the driver's left foot in the footwell.")]
+    public Transform driverLeftFootRestTarget;
+    [Tooltip("Resting position for the driver's right foot when neither pedal is pressed.")]
+    public Transform driverRightFootRestTarget;
+    [Tooltip("Target pose for the right foot when pressing the accelerator.")]
+    public Transform acceleratorFootTarget;
+    [Tooltip("Target pose for the right foot when pressing the brake.")]
+    public Transform brakeFootTarget;
+    [Tooltip("Target pose for the left foot when pressing the clutch.")]
+    public Transform clutchFootTarget;
+    [Tooltip("Optional knee bend hint for the left leg.")]
+    public Transform driverLeftKneeHint;
+    [Tooltip("Optional knee bend hint for the right leg.")]
+    public Transform driverRightKneeHint;
+    [Range(0f, 1f)] public float driverFootIkWeight = 1f;
+    [Tooltip("Enable only on manual vehicles with a clutch pedal. The clutch foot animation is driven by the clutch key configured on PlayerVehicleInteractor.")]
+    public bool hasClutchPedal;
+
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
     [Min(0.05f)] public float suspensionDistance = 0.22f;
