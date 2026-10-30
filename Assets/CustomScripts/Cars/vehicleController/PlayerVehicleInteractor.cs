@@ -743,31 +743,21 @@ IEnumerator TryExitThroughDoor()
     Vehicle exitingVehicle = current;
     VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
 
-    // A configured doorway marker is the preferred exit location. Only fall
-    // back to the vehicle's generic exit-point search when that marker is absent
-    // or obstructed.
-    bool doorwayIsClear = driverDoor != null &&
-        driverDoor.entryPoint != null &&
-        IsSpotFree(driverDoor.entryPoint.position, exitingVehicle);
+    // Prefer the driver's dedicated ExitPoint. If it is missing or obstructed,
+    // retain compatibility with the EntryPoint and the vehicle's generic exits.
+    Transform configuredExit = driverDoor != null && driverDoor.exitPoint != null
+        ? driverDoor.exitPoint
+        : (driverDoor != null ? driverDoor.entryPoint : null);
 
-    if (!doorwayIsClear && !TryFindExitPosition(exitingVehicle, out _))
-    {
-        Say("No safe place to exit here");
-        yield break;
-    }
-
-    // Prefer the same doorway marker used for entry so the exit animation starts
-    // at the correct height and facing direction.
     Vector3 exitPosition;
     Quaternion exitRotation;
-    bool hasDoorwayPosition = driverDoor != null &&
-        driverDoor.entryPoint != null &&
-        IsSpotFree(driverDoor.entryPoint.position, exitingVehicle);
+    bool hasConfiguredExit = configuredExit != null &&
+        IsSpotFree(configuredExit.position, exitingVehicle);
 
-    if (hasDoorwayPosition)
+    if (hasConfiguredExit)
     {
-        exitPosition = driverDoor.entryPoint.position;
-        exitRotation = driverDoor.entryPoint.rotation;
+        exitPosition = configuredExit.position;
+        exitRotation = configuredExit.rotation;
     }
     else if (!TryFindExitPosition(exitingVehicle, out exitPosition))
     {
