@@ -305,8 +305,12 @@ public class Vehicle : MonoBehaviour
         float direction = invertSteeringWheelRotation ? -1f : 1f;
         float angle = appliedSteer * steeringWheelMaxRotation * direction;
 
+        // Apply the spin in the steering wheel's own local space. Multiplying
+        // on the right preserves its installed tilt (for example, the 30-degree
+        // angle that lets it sit on the steering column) instead of tipping it
+        // around the vehicle parent's axes.
         steeringWheelVisual.localRotation =
-            Quaternion.AngleAxis(angle, axis) * steeringWheelRestLocalRotation;
+            steeringWheelRestLocalRotation * Quaternion.AngleAxis(angle, axis);
     }
 
     private void Awake()
