@@ -34,6 +34,9 @@ public class VehicleDoor : MonoBehaviour
     [Tooltip("Empty transform placed just outside this door at the character's standing position. Rotate it so its forward direction faces into the car.")]
     public Transform entryPoint;
 
+    [Tooltip("Optional separate position where the character should finish after exiting through this door. Its forward direction controls the final facing direction.")]
+    public Transform exitPoint;
+
     [Header("Door Role")]
     public DoorRole role = DoorRole.Driver;
 
