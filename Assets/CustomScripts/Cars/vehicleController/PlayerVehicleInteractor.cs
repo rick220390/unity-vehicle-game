@@ -260,7 +260,7 @@ void ApplyRightFootIk()
     // input values so the foot follows the same controls that drive the car.
     if (current.ServiceBrake > 0.05f && current.brakeFootTarget != null)
         target = current.brakeFootTarget;
-    else if (current.Throttle > 0.05f && current.acceleratorFootTarget != null)
+    else if (Mathf.Abs(current.Throttle) > 0.05f && current.acceleratorFootTarget != null)
         target = current.acceleratorFootTarget;
 
     ApplyFootIk(
