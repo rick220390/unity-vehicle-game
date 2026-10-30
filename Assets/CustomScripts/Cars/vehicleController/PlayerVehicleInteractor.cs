@@ -547,6 +547,11 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         entryAnimationFallback
     );
 
+    // Root motion is useful during the short transition, but should not move
+    // the seated player around while the vehicle is being driven.
+    if (vehicleAnimator != null)
+        vehicleAnimator.applyRootMotion = false;
+
     AttachPlayerToSeat(targetVehicle, door.seatPointOverride);
 
     // Let the character settle into the seat before closing the physical door.
@@ -653,7 +658,9 @@ IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fal
         yield break;
     }
 
-    vehicleAnimator.applyRootMotion = false;
+    // Allow the small authored root translation in the Mixamo enter/exit clips.
+    // The player is snapped to the exact seat/doorway marker at the end.
+    vehicleAnimator.applyRootMotion = true;
     vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 1f);
     vehicleAnimator.ResetTrigger(exitTriggerName);
     vehicleAnimator.ResetTrigger(enterTriggerName);
