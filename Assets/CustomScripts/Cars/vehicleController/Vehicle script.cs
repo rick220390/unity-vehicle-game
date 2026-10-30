@@ -397,12 +397,12 @@ public class Vehicle : MonoBehaviour
 
             if (wheel == null || visual == null)
             {
-                wheelVisualRotationOffsets[i] = Quaternion.identity;
-                continue;
+                wheelVisualRotationOffsets[i] = Quaternion.identity;                continue;
             }
 
             // Preserve the model's original alignment relative to the collider's
-            // initial pose. Imported vehicle models often have different wheel axes.            wheel.GetWorldPose(out Vector3 wheelPosition, out Quaternion wheelRotation);
+            // initial pose. Imported vehicle models often have different wheel axes.
+            wheel.GetWorldPose(out Vector3 wheelPosition, out Quaternion wheelRotation);
             wheelVisualPositionOffsets[i] =
                 Quaternion.Inverse(wheelRotation) * (visual.position - wheelPosition);
             wheelVisualRotationOffsets[i] =
@@ -797,8 +797,7 @@ public class Vehicle : MonoBehaviour
 
             float forwardMultiplier = wheelSurfaceForwardMultipliers != null && i < wheelSurfaceForwardMultipliers.Length
                 ? wheelSurfaceForwardMultipliers[i] : 1f;
-            float sidewaysMultiplier = wheelSurfaceSidewaysMultipliers != null && i < wheelSurfaceSidewaysMultipliers.Length
-                ? wheelSurfaceSidewaysMultipliers[i] : 1f;
+            float sidewaysMultiplier = wheelSurfaceSidewaysMultipliers != null && i < wheelSurfaceSidewaysMultipliers.Length                ? wheelSurfaceSidewaysMultipliers[i] : 1f;
 
             if (surfaceGripDebugLines == null || surfaceGripDebugLines.Length != validWheels.Count)
                 surfaceGripDebugLines = new string[validWheels.Count];
@@ -1198,7 +1197,6 @@ public class Vehicle : MonoBehaviour
         float torque = (targetBrake > 1f || serviceBrakeRequested || speedLimited)
             ? 0f
             : CalculateDriveTorque(appliedThrottle);
-
         // Keep useful steering at normal road speeds, then progressively reduce
         // the angle at high speed to avoid an abrupt, unstable steering response.
         float speedFactor = Mathf.InverseLerp(0f, steeringFullSpeedKph, speedKph);
