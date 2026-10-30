@@ -191,9 +191,6 @@ void OnAnimatorIK(int layerIndex)
         8f * Time.deltaTime
     );
 
-    ApplyHandIk(AvatarIKGoal.LeftHand, AvatarIKHint.LeftElbow,
-        current != null ? current.driverLeftHandTarget : null,
-        current != null ? current.driverLeftElbowHint : null);
     ApplyLeftHandIk();
     ApplyRightHandIk();
 }
