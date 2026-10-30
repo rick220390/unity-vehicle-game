@@ -143,7 +143,7 @@ void Update()
         if (nearby != null && Input.GetKeyDown(interactKey))
         {
             if (nearbyDoor != null)
-                Enter(nearby, nearbyDoor.seatPointOverride);
+                StartCoroutine(EnterThroughDoor(nearbyDoor));
             else
                 Enter(nearby, null);
         }
@@ -173,7 +173,7 @@ void Update()
         );
 
         if (Input.GetKeyDown(interactKey))
-            TryExit();
+            StartCoroutine(TryExitThroughDoor());
     }
 
     if (messageTimer > 0f)
@@ -462,9 +462,35 @@ Vehicle FindNearbyVehicle()
 
 void Enter(Vehicle v, Transform seatPointOverride)
 {
-    if (!v.TryReserve())
+    if (v == null || !v.TryReserve())
         return;
 
+    EnterReserved(v, seatPointOverride);
+}
+
+IEnumerator EnterThroughDoor(VehicleDoor door)
+{
+    if (door == null || !door.CanEnterAsDriver || door.vehicle == null)
+        yield break;
+
+    Vehicle targetVehicle = door.vehicle;
+    if (!targetVehicle.TryReserve())
+        yield break;
+
+    door.OpenDoor();
+    yield return new WaitForSeconds(Mathf.Max(0.05f, door.animationDuration));
+
+    // The vehicle is reserved before the door opens, preventing another player
+    // interaction from claiming it during the entry animation.
+    EnterReserved(targetVehicle, door.seatPointOverride);
+
+    // Give the player a brief moment to settle into the seat before closing.
+    yield return new WaitForSeconds(0.15f);
+    door.CloseDoor();
+}
+
+void EnterReserved(Vehicle v, Transform seatPointOverride)
+{
     current = v;
 
     // Start in chase view whenever a vehicle is entered.
@@ -529,22 +555,45 @@ void Enter(Vehicle v, Transform seatPointOverride)
 
 // ---------------- Exit Vehicle ----------------
 
-void TryExit()
+IEnumerator TryExitThroughDoor()
 {
+    if (current == null)
+        yield break;
+
     if (current.Speed > maxExitSpeed)
     {
         Say("Slow down to get out");
-        return;
+        yield break;
     }
 
-    if (!TryFindExitPosition(current, out Vector3 pos))
+    // Check that an exit position exists before opening the door.
+    if (!TryFindExitPosition(current, out _))
     {
         Say("No safe place to exit here");
-        return;
+        yield break;
+    }
+
+    Vehicle exitingVehicle = current;
+    VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
+
+    if (driverDoor != null)
+    {
+        driverDoor.OpenDoor();
+        yield return new WaitForSeconds(Mathf.Max(0.05f, driverDoor.animationDuration));
+    }
+
+    // Recheck after the door has opened in case something moved into the exit space.
+    if (current != exitingVehicle ||
+        !TryFindExitPosition(exitingVehicle, out Vector3 pos))
+    {
+        Say("No safe place to exit here");
+        if (driverDoor != null)
+            driverDoor.CloseDoor();
+        yield break;
     }
 
     Vector3 flatFwd = Vector3.ProjectOnPlane(
-        current.transform.forward,
+        exitingVehicle.transform.forward,
         Vector3.up
     );
 
@@ -567,24 +616,33 @@ void TryExit()
     if (invectorCam != null)
         invectorCam.enabled = invectorCameraWasEnabled;
 
-    Vehicle exitedVehicle = current;
     current = null;
-
-    if (exitedVehicle != null)
-        exitedVehicle.Release();
-
+    exitingVehicle.Release();
     cockpitView = false;
+
+    // Close only after the player has left the vehicle.
+    if (driverDoor != null)
+    {
+        yield return new WaitForSeconds(0.15f);
+        driverDoor.CloseDoor();
+    }
 }
 
-void RestoreDrivingComponents()
+VehicleDoor FindDriverDoor(Vehicle targetVehicle)
 {
-    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    if (targetVehicle == null)
+        return null;
+
+    foreach (VehicleDoor door in VehicleDoor.All)
     {
-        if (state.behaviour != null)
-            state.behaviour.enabled = state.wasEnabled;
+        if (door != null &&
+            door.isActiveAndEnabled &&
+            door.vehicle == targetVehicle &&
+            door.role == VehicleDoor.DoorRole.Driver)
+            return door;
     }
 
-    disabledBehaviourStates.Clear();
+    return null;
 }
 
 bool TryFindExitPosition(Vehicle v, out Vector3 position)
