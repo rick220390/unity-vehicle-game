@@ -76,6 +76,16 @@ public class Vehicle : MonoBehaviour
     [Min(1f)] public float steeringFullSpeedKph = 140f;
     [Min(0.1f)] public float steeringResponse = 10f;
 
+    [Header("Steering Wheel Visual")]
+    [Tooltip("Assign the separate steering wheel mesh/pivot. Its original local rotation is preserved as the centre position.")]
+    public Transform steeringWheelVisual;
+    [Tooltip("Local axis the steering wheel rotates around. Usually local Z (0, 0, 1).")]
+    public Vector3 steeringWheelRotationAxis = Vector3.forward;
+    [Tooltip("Total steering wheel rotation from centre at full steering input.")]
+    [Range(90f, 900f)] public float steeringWheelMaxRotation = 450f;
+    [Tooltip("Reverse this if the visual wheel turns in the opposite direction to the front wheels.")]
+    public bool invertSteeringWheelRotation;
+
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
     [Min(0.05f)] public float suspensionDistance = 0.22f;
@@ -241,6 +251,8 @@ public class Vehicle : MonoBehaviour
     private float appliedThrottle;
     private float appliedBrake;
     private float appliedSteer;
+    private Quaternion steeringWheelRestLocalRotation;
+    private bool steeringWheelRestRotationCaptured;
     private bool warnedNoWheels;
     private float shiftTimer;
     private float shiftCooldown;
@@ -263,10 +275,46 @@ public class Vehicle : MonoBehaviour
     private readonly List<DashboardNeedleState> speedNeedleStates = new List<DashboardNeedleState>();
     private readonly List<DashboardNeedleState> rpmNeedleStates = new List<DashboardNeedleState>();
 
+    private void CaptureSteeringWheelRestRotation()
+    {
+        if (steeringWheelVisual == null)
+        {
+            steeringWheelRestRotationCaptured = false;
+            return;
+        }
+
+        steeringWheelRestLocalRotation = steeringWheelVisual.localRotation;
+        steeringWheelRestRotationCaptured = true;
+    }
+
+    private void UpdateSteeringWheelVisual()
+    {
+        if (steeringWheelVisual == null)
+            return;
+
+        if (!steeringWheelRestRotationCaptured)
+            CaptureSteeringWheelRestRotation();
+
+        if (!steeringWheelRestRotationCaptured)
+            return;
+
+        Vector3 axis = steeringWheelRotationAxis.sqrMagnitude > 0.0001f
+            ? steeringWheelRotationAxis.normalized
+            : Vector3.forward;
+
+        float direction = invertSteeringWheelRotation ? -1f : 1f;
+        float angle = appliedSteer * steeringWheelMaxRotation * direction;
+
+        steeringWheelVisual.localRotation =
+            Quaternion.AngleAxis(angle, axis) * steeringWheelRestLocalRotation;
+    }
+
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
         BodyCollider = GetComponent<Collider>();
+
+        CaptureSteeringWheelRestRotation();
 
         // Cache colliders from the complete vehicle hierarchy once. Imported cars
         // often keep their physical colliders on child objects instead of the root.
@@ -1078,6 +1126,7 @@ public class Vehicle : MonoBehaviour
         appliedSteer = Mathf.Lerp(
             appliedSteer, HasDriver ? Steer : 0f,
             1f - Mathf.Exp(-steeringResponse * dt));
+        UpdateSteeringWheelVisual();
 
         // Coasting resistance, aerodynamic drag and configurable engine braking.
         // Engine braking is applied only while coasting and grounded, not while
