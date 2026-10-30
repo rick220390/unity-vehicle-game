@@ -585,26 +585,27 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
     if (disableWhileDriving != null)
     {
         foreach (MonoBehaviour m in disableWhileDriving)
-        {
-            if (m == null || m == vehicleAnimator)
-                continue;
+            TrackAndDisableMovementBehaviour(m);
+    }
 
-            bool alreadyTracked = false;
-            foreach (BehaviourEnabledState state in disabledBehaviourStates)
-            {
-                if (state.behaviour == m)
-                {
-                    alreadyTracked = true;
-                    break;
-                }
-            }
+    // Do not rely only on the Inspector array: missing one Invector input or
+    // controller component allows WASD to keep moving the character during
+    // the enter animation and while seated. Automatically lock the standard
+    // Invector movement components anywhere under this player hierarchy.
+    MonoBehaviour[] playerBehaviours = GetComponentsInChildren<MonoBehaviour>(true);
+    foreach (MonoBehaviour behaviour in playerBehaviours)
+    {
+        if (behaviour == null || behaviour == vehicleAnimator)
+            continue;
 
-            if (!alreadyTracked)
-                disabledBehaviourStates.Add(
-                    new BehaviourEnabledState(m, m.enabled));
+        string typeName = behaviour.GetType().Name;
+        bool isInvectorMovement =
+            typeName == "vThirdPersonInput" ||
+            typeName == "vThirdPersonController" ||
+            typeName == "vThirdPersonMotor";
 
-            m.enabled = false;
-        }
+        if (isInvectorMovement)
+            TrackAndDisableMovementBehaviour(behaviour);
     }
 
     invectorCameraWasEnabled = invectorCam != null && invectorCam.enabled;
@@ -616,6 +617,24 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
         SetPlayerVisible(false);
 
     AttachPlayerToSeat(v, seatPointOverride);
+}
+
+void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
+{
+    if (behaviour == null || behaviour == vehicleAnimator)
+        return;
+
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour == behaviour)
+        {
+            behaviour.enabled = false;
+            return;
+        }
+    }
+
+    disabledBehaviourStates.Add(new BehaviourEnabledState(behaviour, behaviour.enabled));
+    behaviour.enabled = false;
 }
 
 void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alignmentDoor = null)
