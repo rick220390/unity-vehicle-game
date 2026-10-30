@@ -631,6 +631,16 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
     if (behaviour == null || behaviour == vehicleAnimator)
         return;
 
+    // Do not disable Invector's controller or motor. The motor may receive
+    // Animator root motion through OnAnimatorMove; disabling it interrupts
+    // authored Mixamo movement and can leave the character frozen mid-transition.
+    // vThirdPersonInput is still disabled, so the player cannot walk or steer
+    // themselves while entering, seated, or exiting.
+    string typeName = behaviour.GetType().Name;
+    if (typeName == "vThirdPersonController" ||
+        typeName == "vThirdPersonMotor")
+        return;
+
     foreach (BehaviourEnabledState state in disabledBehaviourStates)
     {
         if (state.behaviour == behaviour)
@@ -646,21 +656,31 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
 
 void SetInvectorRootMotionBehavioursEnabled(bool enabled)
 {
-    // Invector's controller/motor can contain OnAnimatorMove handling. Keep
-    // those components alive while an entry/exit clip plays so authored root
-    // rotation (the turn into the seat) is applied, but keep them disabled
-    // while the player is seated and the vehicle is being driven.
-    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    // Kept for the existing enter/exit flow. The Invector controller and motor
+    // now remain enabled for the entire transition AND while seated. Only the
+    // input component is locked, preserving OnAnimatorMove/root-motion handling.
+    // Restore each component's original state in case it was disabled in the Inspector.
+    foreach (MonoBehaviour behaviour in GetComponentsInChildren<MonoBehaviour>(true))
     {
-        if (state.behaviour == null)
+        if (behaviour == null)
             continue;
 
-        string typeName = state.behaviour.GetType().Name;
+        string typeName = behaviour.GetType().Name;
         if (typeName != "vThirdPersonController" &&
             typeName != "vThirdPersonMotor")
             continue;
 
-        state.behaviour.enabled = enabled && state.wasEnabled;
+        bool originallyEnabled = true;
+        foreach (BehaviourEnabledState state in disabledBehaviourStates)
+        {
+            if (state.behaviour == behaviour)
+            {
+                originallyEnabled = state.wasEnabled;
+                break;
+            }
+        }
+
+        behaviour.enabled = originallyEnabled;
     }
 }
 
