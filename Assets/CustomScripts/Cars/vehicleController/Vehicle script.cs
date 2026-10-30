@@ -86,6 +86,17 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Reverse this if the visual wheel turns in the opposite direction to the front wheels.")]
     public bool invertSteeringWheelRotation;
 
+    [Header("Driver Hand IK")]
+    [Tooltip("Left hand grip target. Parent this to the steering wheel visual so it follows the wheel.")]
+    public Transform driverLeftHandTarget;
+    [Tooltip("Right hand grip target. Parent this to the steering wheel visual so it follows the wheel.")]
+    public Transform driverRightHandTarget;
+    [Tooltip("Optional elbow bend target for the left arm.")]
+    public Transform driverLeftElbowHint;
+    [Tooltip("Optional elbow bend target for the right arm.")]
+    public Transform driverRightElbowHint;
+    [Range(0f, 1f)] public float driverHandIkWeight = 1f;
+
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
     [Min(0.05f)] public float suspensionDistance = 0.22f;
