@@ -552,7 +552,7 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     if (vehicleAnimator != null)
         vehicleAnimator.applyRootMotion = false;
 
-    AttachPlayerToSeat(targetVehicle, door.seatPointOverride);
+    AttachPlayerToSeat(targetVehicle, door.seatPointOverride, door);
 
     // Let the character settle into the seat before closing the physical door.
     yield return new WaitForSeconds(0.15f);
@@ -618,18 +618,28 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
     AttachPlayerToSeat(v, seatPointOverride);
 }
 
-void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride)
+void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alignmentDoor = null)
 {
     if (v == null)
         return;
 
+    // A door's seat override takes priority over the vehicle's general seat point.
+    // Keep the character transform relative to this marker so each vehicle can
+    // be aligned precisely in the Inspector without changing the Mixamo clips.
     Transform seat = seatPointOverride != null
         ? seatPointOverride
         : (v.seatPoint != null ? v.seatPoint : v.transform);
 
+    Vector3 positionOffset = alignmentDoor != null
+        ? alignmentDoor.seatedLocalPositionOffset
+        : Vector3.zero;
+    Vector3 rotationOffset = alignmentDoor != null
+        ? alignmentDoor.seatedLocalRotationOffset
+        : Vector3.zero;
+
     transform.SetParent(seat, false);
-    transform.localPosition = Vector3.zero;
-    transform.localRotation = Quaternion.identity;
+    transform.localPosition = positionOffset;
+    transform.localRotation = Quaternion.Euler(rotationOffset);
 }
 
 bool HasAnimatorTrigger(string triggerName)
