@@ -656,32 +656,11 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
 
 void SetInvectorRootMotionBehavioursEnabled(bool enabled)
 {
-    // Kept for the existing enter/exit flow. The Invector controller and motor
-    // now remain enabled for the entire transition AND while seated. Only the
-    // input component is locked, preserving OnAnimatorMove/root-motion handling.
-    // Restore each component's original state in case it was disabled in the Inspector.
-    foreach (MonoBehaviour behaviour in GetComponentsInChildren<MonoBehaviour>(true))
-    {
-        if (behaviour == null)
-            continue;
-
-        string typeName = behaviour.GetType().Name;
-        if (typeName != "vThirdPersonController" &&
-            typeName != "vThirdPersonMotor")
-            continue;
-
-        bool originallyEnabled = true;
-        foreach (BehaviourEnabledState state in disabledBehaviourStates)
-        {
-            if (state.behaviour == behaviour)
-            {
-                originallyEnabled = state.wasEnabled;
-                break;
-            }
-        }
-
-        behaviour.enabled = originallyEnabled;
-    }
+    // Intentionally left as a no-op for compatibility with the existing flow.
+    // The controller and motor are never disabled by this interactor, so their
+    // original Inspector enabled states remain untouched. Only vThirdPersonInput
+    // is disabled while driving, allowing Invector to continue receiving
+    // Animator root motion without accepting player movement input.
 }
 
 void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alignmentDoor = null)
