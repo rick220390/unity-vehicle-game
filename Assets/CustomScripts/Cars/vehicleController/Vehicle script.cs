@@ -74,7 +74,12 @@ public class Vehicle : MonoBehaviour
     [Range(5f, 55f)] public float maxSteerAngle = 45f;
     [Range(5f, 30f)] public float highSpeedSteerAngle = 16f;
     [Min(1f)] public float steeringFullSpeedKph = 140f;
-    [Min(0.1f)] public float steeringResponse = 10f;
+    [Tooltip("How much of the driver's steering input is applied. Lower values reduce the overall steering angle; 0.65 is a gentler starting point.")]
+    [Range(0.1f, 1.5f)] public float steeringSensitivity = 0.65f;
+    [Tooltip("Shapes steering around the centre. Values above 1 make small inputs gentler while preserving the full input range. Try 1.5.")]
+    [Range(1f, 3f)] public float steeringInputCurve = 1.5f;
+    [Tooltip("How quickly the steering follows the shaped input. This is response speed, not sensitivity.")]
+    [Min(0.1f)] public float steeringResponse = 4f;
 
     [Header("Steering Wheel Visual")]
     [Tooltip("Assign the separate steering wheel mesh/pivot. Its original local rotation is preserved as the centre position.")]
@@ -397,8 +402,7 @@ public class Vehicle : MonoBehaviour
             }
 
             // Preserve the model's original alignment relative to the collider's
-            // initial pose. Imported vehicle models often have different wheel axes.
-            wheel.GetWorldPose(out Vector3 wheelPosition, out Quaternion wheelRotation);
+            // initial pose. Imported vehicle models often have different wheel axes.            wheel.GetWorldPose(out Vector3 wheelPosition, out Quaternion wheelRotation);
             wheelVisualPositionOffsets[i] =
                 Quaternion.Inverse(wheelRotation) * (visual.position - wheelPosition);
             wheelVisualRotationOffsets[i] =
@@ -798,7 +802,6 @@ public class Vehicle : MonoBehaviour
 
             if (surfaceGripDebugLines == null || surfaceGripDebugLines.Length != validWheels.Count)
                 surfaceGripDebugLines = new string[validWheels.Count];
-
             if (!wheel.GetGroundHit(out WheelHit hit))
             {
                 surfaceGripDebugLines[i] = $"{wheel.name}: NOT GROUNDED";
@@ -1086,6 +1089,19 @@ public class Vehicle : MonoBehaviour
             DriveFallback();
     }
 
+    /// <summary>
+    /// Applies per-vehicle steering sensitivity and a progressive input curve.
+    /// The curve softens small stick/key movements without changing their direction.
+    /// Sensitivity then scales the resulting steering range.
+    /// </summary>
+    private float GetShapedSteeringInput(float rawInput)
+    {
+        float input = Mathf.Clamp(rawInput, -1f, 1f);
+        float curve = Mathf.Max(1f, steeringInputCurve);
+        float shaped = Mathf.Sign(input) * Mathf.Pow(Mathf.Abs(input), curve);
+        return Mathf.Clamp(shaped * Mathf.Max(0.01f, steeringSensitivity), -1f, 1f);
+    }
+
     private void DriveWithWheelColliders()
     {
         float dt = Time.fixedDeltaTime;
@@ -1138,8 +1154,9 @@ public class Vehicle : MonoBehaviour
             appliedBrake = Mathf.MoveTowards(
                 appliedBrake, targetBrake, brakeResponse * serviceBrakeTorque * dt);
         IsBraking = HasDriver && appliedBrake > 1f;
+        float targetSteer = HasDriver ? GetShapedSteeringInput(Steer) : 0f;
         appliedSteer = Mathf.Lerp(
-            appliedSteer, HasDriver ? Steer : 0f,
+            appliedSteer, targetSteer,
             1f - Mathf.Exp(-steeringResponse * dt));
         UpdateSteeringWheelVisual();
 
@@ -1197,7 +1214,6 @@ public class Vehicle : MonoBehaviour
             bool isSteeringWheel = ContainsIndex(steeringWheelIndexes, i);
             bool isDrivenWheel = ContainsIndex(drivenWheelIndexes, i);
             bool isRearWheel = !isSteeringWheel;
-
             wheel.steerAngle = isSteeringWheel ? steerAngle : 0f;
             wheel.motorTorque = isDrivenWheel ? torque : 0f;
 
@@ -1531,7 +1547,8 @@ public class Vehicle : MonoBehaviour
         if (HasDriver)
         {
             float speedFactor = Mathf.Clamp01(Mathf.Abs(forwardSpeed) / 8f);
-            float targetYaw = Steer * 75f * Mathf.Deg2Rad * speedFactor * (forwardSpeed < -0.1f ? -1f : 1f);
+            float shapedSteer = GetShapedSteeringInput(Steer);
+            float targetYaw = shapedSteer * 75f * Mathf.Deg2Rad * speedFactor * (forwardSpeed < -0.1f ? -1f : 1f);
             Vector3 angular = rb.angularVelocity;
             angular.y = Mathf.Lerp(angular.y, targetYaw, 1f - Mathf.Exp(-5f * dt));
             rb.angularVelocity = angular;
