@@ -22,6 +22,18 @@ public float maxExitSpeed = 8f;
 [Tooltip("Hide the player renderers while driving. Leave disabled to keep the third-person character visible inside the vehicle.")]
 public bool hidePlayerMeshWhileDriving = false;
 
+[Header("Vehicle Animations")]
+[Tooltip("Animator on the Invector ThirdPerson root. If empty, this component searches the same GameObject.")]
+public Animator vehicleAnimator;
+public string vehicleLayerName = "Vehicle";
+public string enterTriggerName = "EnterVehicle";
+public string exitTriggerName = "ExitVehicle";
+public string enteringStateName = "EnteringCar";
+public string exitingStateName = "ExitingCar";
+[Min(0.1f)] public float entryAnimationFallback = 2.5f;
+[Min(0.1f)] public float exitAnimationFallback = 2.5f;
+[Min(1f)] public float animationStateTimeout = 10f;
+
 [Header("Disable while driving (drag in!)")]
 [Tooltip("Drag in vThirdPersonInput, vThirdPersonController, and vThirdPersonCamera.")]
 public MonoBehaviour[] disableWhileDriving;
@@ -100,6 +112,8 @@ private readonly List<BehaviourEnabledState> disabledBehaviourStates =
     new List<BehaviourEnabledState>();
 private bool invectorCameraWasEnabled;
 private bool playerRigidbodyWasKinematic;
+private int vehicleAnimatorLayer = -1;
+private bool animatorRootMotionWasEnabled;
 
 private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
@@ -113,6 +127,24 @@ private readonly RaycastHit[] cameraCastHits = new RaycastHit[32];
 void Awake()
 {
     rb = GetComponent<Rigidbody>();
+
+    if (vehicleAnimator == null)
+        vehicleAnimator = GetComponent<Animator>();
+
+    if (vehicleAnimator != null)
+    {
+        vehicleAnimatorLayer = vehicleAnimator.GetLayerIndex(vehicleLayerName);
+        animatorRootMotionWasEnabled = vehicleAnimator.applyRootMotion;
+
+        if (vehicleAnimatorLayer >= 0)
+            vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 0f);
+        else
+            Debug.LogWarning($"PlayerVehicleInteractor: Animator layer '{vehicleLayerName}' was not found.", this);
+    }
+    else
+    {
+        Debug.LogWarning("PlayerVehicleInteractor: No Animator found on the player root. Vehicle animations will use timed fallbacks.", this);
+    }
 
 #if UNITY_2023_1_OR_NEWER
 invectorCam = FindFirstObjectByType<vThirdPersonCamera>();
@@ -481,14 +513,43 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     if (!targetVehicle.TryReserve())
         yield break;
 
-    door.OpenDoor();
-    yield return new WaitForSeconds(Mathf.Max(0.05f, door.animationDuration));
-
-    // The vehicle is reserved before the door opens, preventing another player
-    // interaction from claiming it during the entry animation.
+    // Prepare the player and reserve the vehicle before either animation starts.
     EnterReserved(targetVehicle, door.seatPointOverride);
 
-    // Give the player a brief moment to settle into the seat before closing.
+    // Start the character at a dedicated marker beside the driver's door.
+    // The marker's forward direction should face the car/seat.
+    Transform entryPoint = door.entryPoint;
+    if (entryPoint != null)
+    {
+        transform.SetParent(originalParent, true);
+        transform.SetPositionAndRotation(entryPoint.position, entryPoint.rotation);
+        transform.localScale = originalLocalScale;
+    }
+    else
+    {
+        Vector3 side = Vector3.ProjectOnPlane(targetVehicle.transform.right, Vector3.up).normalized;
+        if (side.sqrMagnitude < 0.001f)
+            side = Vector3.right;
+
+        Vector3 startPosition = door.InteractionTransform.position + side * 0.8f;
+        Quaternion faceCar = Quaternion.LookRotation(-side, Vector3.up);
+        transform.SetParent(originalParent, true);
+        transform.SetPositionAndRotation(startPosition, faceCar);
+        transform.localScale = originalLocalScale;
+        Debug.LogWarning("VehicleDoor has no Entry Point assigned. Using an approximate position beside the vehicle.", door);
+    }
+
+    // The real hinged door and the Mixamo body animation run at the same time.
+    door.OpenDoor();
+    yield return PlayVehicleAnimation(
+        enterTriggerName,
+        enteringStateName,
+        entryAnimationFallback
+    );
+
+    AttachPlayerToSeat(targetVehicle, door.seatPointOverride);
+
+    // Let the character settle into the seat before closing the physical door.
     yield return new WaitForSeconds(0.15f);
     door.CloseDoor();
 }
@@ -520,7 +581,7 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
     {
         foreach (MonoBehaviour m in disableWhileDriving)
         {
-            if (m == null)
+            if (m == null || m == vehicleAnimator)
                 continue;
 
             bool alreadyTracked = false;
@@ -549,13 +610,114 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
     if (hidePlayerMeshWhileDriving)
         SetPlayerVisible(false);
 
+    AttachPlayerToSeat(v, seatPointOverride);
+}
+
+void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride)
+{
+    if (v == null)
+        return;
+
     Transform seat = seatPointOverride != null
         ? seatPointOverride
         : (v.seatPoint != null ? v.seatPoint : v.transform);
 
-    transform.SetParent(seat, true);
+    transform.SetParent(seat, false);
     transform.localPosition = Vector3.zero;
     transform.localRotation = Quaternion.identity;
+}
+
+bool HasAnimatorTrigger(string triggerName)
+{
+    if (vehicleAnimator == null || string.IsNullOrEmpty(triggerName))
+        return false;
+
+    foreach (AnimatorControllerParameter parameter in vehicleAnimator.parameters)
+    {
+        if (parameter.name == triggerName &&
+            parameter.type == AnimatorControllerParameterType.Trigger)
+            return true;
+    }
+
+    return false;
+}
+
+IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fallbackDuration)
+{
+    if (vehicleAnimator == null ||
+        !vehicleAnimator.isActiveAndEnabled ||
+        vehicleAnimatorLayer < 0 ||
+        !HasAnimatorTrigger(triggerName))
+    {
+        yield return new WaitForSeconds(Mathf.Max(0.1f, fallbackDuration));
+        yield break;
+    }
+
+    vehicleAnimator.applyRootMotion = false;
+    vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 1f);
+    vehicleAnimator.ResetTrigger(exitTriggerName);
+    vehicleAnimator.ResetTrigger(enterTriggerName);
+    vehicleAnimator.SetTrigger(triggerName);
+
+    // Wait for the requested state to become active. A timeout prevents a
+    // missing/misnamed Animator state from trapping the player indefinitely.
+    float elapsed = 0f;
+    bool stateStarted = false;
+
+    while (elapsed < animationStateTimeout)
+    {
+        if (vehicleAnimator == null || !vehicleAnimator.isActiveAndEnabled)
+            break;
+
+        AnimatorStateInfo state = vehicleAnimator.GetCurrentAnimatorStateInfo(vehicleAnimatorLayer);
+        if (state.IsName(stateName))
+        {
+            stateStarted = true;
+            break;
+        }
+
+        if (vehicleAnimator.IsInTransition(vehicleAnimatorLayer))
+        {
+            AnimatorStateInfo next = vehicleAnimator.GetNextAnimatorStateInfo(vehicleAnimatorLayer);
+            if (next.IsName(stateName))
+            {
+                stateStarted = true;
+                break;
+            }
+        }
+
+        elapsed += Time.deltaTime;
+        yield return null;
+    }
+
+    if (!stateStarted)
+    {
+        Debug.LogWarning($"Vehicle animation state '{stateName}' did not start. Using the configured fallback duration.", this);
+        yield return new WaitForSeconds(Mathf.Max(0.1f, fallbackDuration));
+        yield break;
+    }
+
+    // Wait until the clip has played almost to completion. Entry then transitions
+    // naturally into the Driving state; exit remains in its final pose until restored.
+    elapsed = 0f;
+    while (elapsed < animationStateTimeout)
+    {
+        if (vehicleAnimator == null || !vehicleAnimator.isActiveAndEnabled)
+            yield break;
+
+        AnimatorStateInfo state = vehicleAnimator.GetCurrentAnimatorStateInfo(vehicleAnimatorLayer);
+        if (state.IsName(stateName) && state.normalizedTime >= 0.95f)
+            yield break;
+
+        // The entry transition is configured to move directly into Driving.
+        if (stateName == enteringStateName && state.IsName("Driving"))
+            yield break;
+
+        elapsed += Time.deltaTime;
+        yield return null;
+    }
+
+    Debug.LogWarning($"Vehicle animation state '{stateName}' did not finish before timeout.", this);
 }
 
 // ---------------- Exit Vehicle ----------------
@@ -581,41 +743,59 @@ IEnumerator TryExitThroughDoor()
     Vehicle exitingVehicle = current;
     VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
 
-    if (driverDoor != null)
-    {
-        driverDoor.OpenDoor();
-        yield return new WaitForSeconds(Mathf.Max(0.05f, driverDoor.animationDuration));
-    }
+    // Prefer the same doorway marker used for entry so the exit animation starts
+    // at the correct height and facing direction.
+    Vector3 exitPosition;
+    Quaternion exitRotation;
+    bool hasDoorwayPosition = driverDoor != null &&
+        driverDoor.entryPoint != null &&
+        IsSpotFree(driverDoor.entryPoint.position, exitingVehicle);
 
-    // Recheck after the door has opened in case something moved into the exit space.
-    if (current != exitingVehicle ||
-        !TryFindExitPosition(exitingVehicle, out Vector3 pos))
+    if (hasDoorwayPosition)
+    {
+        exitPosition = driverDoor.entryPoint.position;
+        exitRotation = driverDoor.entryPoint.rotation;
+    }
+    else if (!TryFindExitPosition(exitingVehicle, out exitPosition))
     {
         Say("No safe place to exit here");
-        if (driverDoor != null)
-            driverDoor.CloseDoor();
         yield break;
     }
+    else
+    {
+        Vector3 flatFwd = Vector3.ProjectOnPlane(exitingVehicle.transform.forward, Vector3.up);
+        exitRotation = flatFwd.sqrMagnitude > 0.001f
+            ? Quaternion.LookRotation(flatFwd, Vector3.up)
+            : Quaternion.identity;
+    }
 
-    Vector3 flatFwd = Vector3.ProjectOnPlane(
-        exitingVehicle.transform.forward,
-        Vector3.up
-    );
-
-    Quaternion rot = flatFwd.sqrMagnitude > 0.001f
-        ? Quaternion.LookRotation(flatFwd, Vector3.up)
-        : Quaternion.identity;
+    // Recheck after positioning is selected, then animate the real door and
+    // character together while Invector movement and player physics remain disabled.
+    if (current != exitingVehicle)
+        yield break;
 
     transform.SetParent(originalParent, true);
-    transform.SetPositionAndRotation(pos, rot);
-    // Reparenting under a scaled seat can alter the player's local scale.
-    // Restore the exact scale captured before entering the vehicle.
+    transform.SetPositionAndRotation(exitPosition, exitRotation);
     transform.localScale = originalLocalScale;
+
+    if (driverDoor != null)
+        driverDoor.OpenDoor();
+
+    yield return PlayVehicleAnimation(
+        exitTriggerName,
+        exitingStateName,
+        exitAnimationFallback
+    );
+
+    // The character has now completed the exit animation. Restore normal control.
+    if (vehicleAnimator != null && vehicleAnimatorLayer >= 0)
+        vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 0f);
+
+    if (vehicleAnimator != null)
+        vehicleAnimator.applyRootMotion = animatorRootMotionWasEnabled;
 
     SetPlayerVisible(true);
     SetPlayerPhysics(true);
-
-    // Restore exactly the component states that existed before entering.
     RestoreDrivingComponents();
 
     if (invectorCam != null)
@@ -625,7 +805,6 @@ IEnumerator TryExitThroughDoor()
     exitingVehicle.Release();
     cockpitView = false;
 
-    // Close only after the player has left the vehicle.
     if (driverDoor != null)
     {
         yield return new WaitForSeconds(0.15f);
