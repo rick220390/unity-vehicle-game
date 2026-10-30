@@ -30,6 +30,10 @@ public string enterTriggerName = "EnterVehicle";
 public string exitTriggerName = "ExitVehicle";
 public string enteringStateName = "EnteringCar";
 public string exitingStateName = "ExitingCar";
+[Tooltip("Yaw correction applied to the EntryPoint. Use 180 if the Mixamo character faces away from the car.")]
+public float entryFacingOffset = 180f;
+[Tooltip("Small local-space position correction from the EntryPoint. Use this to fine-tune the character's feet position.")]
+public Vector3 entryPositionOffset = Vector3.zero;
 [Min(0.1f)] public float entryAnimationFallback = 2.5f;
 [Min(0.1f)] public float exitAnimationFallback = 2.5f;
 [Min(1f)] public float animationStateTimeout = 10f;
@@ -522,7 +526,10 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     if (entryPoint != null)
     {
         transform.SetParent(originalParent, true);
-        transform.SetPositionAndRotation(entryPoint.position, entryPoint.rotation);
+        Quaternion correctedEntryRotation = entryPoint.rotation *
+            Quaternion.Euler(0f, entryFacingOffset, 0f);
+        Vector3 correctedEntryPosition = entryPoint.TransformPoint(entryPositionOffset);
+        transform.SetPositionAndRotation(correctedEntryPosition, correctedEntryRotation);
         transform.localScale = originalLocalScale;
     }
     else
@@ -532,7 +539,8 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
             side = Vector3.right;
 
         Vector3 startPosition = door.InteractionTransform.position + side * 0.8f;
-        Quaternion faceCar = Quaternion.LookRotation(-side, Vector3.up);
+        Quaternion faceCar = Quaternion.LookRotation(-side, Vector3.up) *
+            Quaternion.Euler(0f, entryFacingOffset, 0f);
         transform.SetParent(originalParent, true);
         transform.SetPositionAndRotation(startPosition, faceCar);
         transform.localScale = originalLocalScale;
@@ -658,9 +666,10 @@ IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fal
         yield break;
     }
 
-    // Allow the small authored root translation in the Mixamo enter/exit clips.
-    // The player is snapped to the exact seat/doorway marker at the end.
-    vehicleAnimator.applyRootMotion = true;
+    // Keep the Invector root anchored to the doorway/seat markers. These Mixamo
+    // clips contain a little vertical root translation; applying it lifts the
+    // whole character off the ground. The body pose still animates normally.
+    vehicleAnimator.applyRootMotion = false;
     vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 1f);
     vehicleAnimator.ResetTrigger(exitTriggerName);
     vehicleAnimator.ResetTrigger(enterTriggerName);
@@ -748,7 +757,10 @@ IEnumerator TryExitThroughDoor()
     // or obstructed.
     bool doorwayIsClear = driverDoor != null &&
         driverDoor.entryPoint != null &&
-        IsSpotFree(driverDoor.entryPoint.position, exitingVehicle);
+        IsSpotFree(
+            driverDoor.entryPoint.TransformPoint(entryPositionOffset),
+            exitingVehicle
+        );
 
     if (!doorwayIsClear && !TryFindExitPosition(exitingVehicle, out _))
     {
@@ -766,8 +778,9 @@ IEnumerator TryExitThroughDoor()
 
     if (hasDoorwayPosition)
     {
-        exitPosition = driverDoor.entryPoint.position;
-        exitRotation = driverDoor.entryPoint.rotation;
+        exitPosition = driverDoor.entryPoint.TransformPoint(entryPositionOffset);
+        exitRotation = driverDoor.entryPoint.rotation *
+            Quaternion.Euler(0f, entryFacingOffset, 0f);
     }
     else if (!TryFindExitPosition(exitingVehicle, out exitPosition))
     {
