@@ -539,6 +539,11 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         Debug.LogWarning("VehicleDoor has no Entry Point assigned. Using an approximate position beside the vehicle.", door);
     }
 
+    // Re-enable Invector's root-motion receiver for the transition. Input
+    // remains locked, so this restores the animation's authored turning without
+    // allowing the player to walk around with WASD.
+    SetInvectorRootMotionBehavioursEnabled(true);
+
     // The real hinged door and the Mixamo body animation run at the same time.
     door.OpenDoor();
     yield return PlayVehicleAnimation(
@@ -546,6 +551,8 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         enteringStateName,
         entryAnimationFallback
     );
+
+    SetInvectorRootMotionBehavioursEnabled(false);
 
     // Root motion is useful during the short transition, but should not move
     // the seated player around while the vehicle is being driven.
@@ -635,6 +642,26 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
 
     disabledBehaviourStates.Add(new BehaviourEnabledState(behaviour, behaviour.enabled));
     behaviour.enabled = false;
+}
+
+void SetInvectorRootMotionBehavioursEnabled(bool enabled)
+{
+    // Invector's controller/motor can contain OnAnimatorMove handling. Keep
+    // those components alive while an entry/exit clip plays so authored root
+    // rotation (the turn into the seat) is applied, but keep them disabled
+    // while the player is seated and the vehicle is being driven.
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour == null)
+            continue;
+
+        string typeName = state.behaviour.GetType().Name;
+        if (typeName != "vThirdPersonController" &&
+            typeName != "vThirdPersonMotor")
+            continue;
+
+        state.behaviour.enabled = enabled && state.wasEnabled;
+    }
 }
 
 void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alignmentDoor = null)
@@ -807,6 +834,10 @@ IEnumerator TryExitThroughDoor()
     if (current != exitingVehicle)
         yield break;
 
+    // Restore only the Invector root-motion receiver for the exit clip.
+    // The input component stays disabled until the character is safely outside.
+    SetInvectorRootMotionBehavioursEnabled(true);
+
     if (driverDoor != null)
         driverDoor.OpenDoor();
 
@@ -815,6 +846,8 @@ IEnumerator TryExitThroughDoor()
         exitingStateName,
         exitAnimationFallback
     );
+
+    SetInvectorRootMotionBehavioursEnabled(false);
 
     transform.SetParent(originalParent, true);
     transform.SetPositionAndRotation(exitPosition, exitRotation);
