@@ -123,7 +123,7 @@ private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
 private bool handIkActive;
 private float handIkCurrentWeight;
-private float rightHandGearShiftBlend;
+private float gearShiftHandBlend;
 private int lastObservedGear = 1;
 private Coroutine gearShiftRoutine;
 
@@ -197,43 +197,47 @@ void OnAnimatorIK(int layerIndex)
 
 void ApplyLeftHandIk()
 {
-    ApplyHandIk(AvatarIKGoal.LeftHand, AvatarIKHint.LeftElbow,
+    ApplyHandIkWithGearShift(AvatarIKGoal.LeftHand, AvatarIKHint.LeftElbow,
         current != null ? current.driverLeftHandTarget : null,
-        current != null ? current.driverLeftElbowHint : null);
+        current != null ? current.driverLeftElbowHint : null,
+        current != null && current.gearShiftHandSide == Vehicle.GearShiftHandSide.Left);
 }
 
 void ApplyRightHandIk()
 {
-    Transform wheelTarget = current != null ? current.driverRightHandTarget : null;
-    Transform gearTarget = current != null ? current.gearShiftHandTarget : null;
-    float blend = gearTarget != null ? Mathf.Clamp01(rightHandGearShiftBlend) : 0f;
+    ApplyHandIkWithGearShift(AvatarIKGoal.RightHand, AvatarIKHint.RightElbow,
+        current != null ? current.driverRightHandTarget : null,
+        current != null ? current.driverRightElbowHint : null,
+        current != null && current.gearShiftHandSide == Vehicle.GearShiftHandSide.Right);
+}
+
+void ApplyHandIkWithGearShift(AvatarIKGoal hand, AvatarIKHint elbow, Transform wheelTarget, Transform elbowHint, bool isGearShiftHand)
+{
+    Transform gearTarget = isGearShiftHand && current != null ? current.gearShiftHandTarget : null;
+    float blend = gearTarget != null ? Mathf.Clamp01(gearShiftHandBlend) : 0f;
 
     if (wheelTarget == null)
     {
-        ApplyHandIk(AvatarIKGoal.RightHand, AvatarIKHint.RightElbow, gearTarget, null);
+        ApplyHandIk(hand, elbow, gearTarget, null);
         return;
     }
 
     if (gearTarget == null || blend <= 0.001f)
     {
-        ApplyHandIk(AvatarIKGoal.RightHand, AvatarIKHint.RightElbow,
-            wheelTarget, current != null ? current.driverRightElbowHint : null);
+        ApplyHandIk(hand, elbow, wheelTarget, elbowHint);
         return;
     }
 
     float weight = handIkCurrentWeight;
-    vehicleAnimator.SetIKPositionWeight(AvatarIKGoal.RightHand, weight);
-    vehicleAnimator.SetIKRotationWeight(AvatarIKGoal.RightHand, weight);
-    vehicleAnimator.SetIKPosition(AvatarIKGoal.RightHand,
-        Vector3.Lerp(wheelTarget.position, gearTarget.position, blend));
-    vehicleAnimator.SetIKRotation(AvatarIKGoal.RightHand,
-        Quaternion.Slerp(wheelTarget.rotation, gearTarget.rotation, blend));
+    vehicleAnimator.SetIKPositionWeight(hand, weight);
+    vehicleAnimator.SetIKRotationWeight(hand, weight);
+    vehicleAnimator.SetIKPosition(hand, Vector3.Lerp(wheelTarget.position, gearTarget.position, blend));
+    vehicleAnimator.SetIKRotation(hand, Quaternion.Slerp(wheelTarget.rotation, gearTarget.rotation, blend));
 
-    Transform elbowHint = current != null ? current.driverRightElbowHint : null;
     float hintWeight = elbowHint != null ? weight : 0f;
-    vehicleAnimator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, hintWeight);
+    vehicleAnimator.SetIKHintPositionWeight(elbow, hintWeight);
     if (elbowHint != null)
-        vehicleAnimator.SetIKHintPosition(AvatarIKHint.RightElbow, elbowHint.position);
+        vehicleAnimator.SetIKHintPosition(elbow, elbowHint.position);
 }
 
 void StartGearShiftHandAnimation()
@@ -246,10 +250,10 @@ void StartGearShiftHandAnimation()
 
 IEnumerator AnimateGearShiftHand()
 {
-    yield return AnimateGearShiftBlend(rightHandGearShiftBlend, 1f, gearShiftReachDuration);
+    yield return AnimateGearShiftBlend(gearShiftHandBlend, 1f, gearShiftReachDuration);
     if (gearShiftHoldDuration > 0f)
         yield return new WaitForSeconds(gearShiftHoldDuration);
-    yield return AnimateGearShiftBlend(rightHandGearShiftBlend, 0f, gearShiftReturnDuration);
+    yield return AnimateGearShiftBlend(gearShiftHandBlend, 0f, gearShiftReturnDuration);
     gearShiftRoutine = null;
 }
 
@@ -257,7 +261,7 @@ IEnumerator AnimateGearShiftBlend(float start, float end, float duration)
 {
     if (duration <= 0.001f)
     {
-        rightHandGearShiftBlend = end;
+        gearShiftHandBlend = end;
         yield break;
     }
 
@@ -266,11 +270,11 @@ IEnumerator AnimateGearShiftBlend(float start, float end, float duration)
     {
         elapsed += Time.deltaTime;
         float t = Mathf.Clamp01(elapsed / duration);
-        rightHandGearShiftBlend = Mathf.Lerp(start, end, Mathf.SmoothStep(0f, 1f, t));
+        gearShiftHandBlend = Mathf.Lerp(start, end, Mathf.SmoothStep(0f, 1f, t));
         yield return null;
     }
 
-    rightHandGearShiftBlend = end;
+    gearShiftHandBlend = end;
 }
 
 void ApplyHandIk(AvatarIKGoal hand, AvatarIKHint elbow, Transform handTarget, Transform elbowHint)
@@ -336,7 +340,7 @@ void Update()
         );
 
         // The automatic gearbox updates in the vehicle's physics step. Detect
-        // each completed gear selection and animate only the driver's right hand.
+        // each completed gear selection and animate the hand configured on this vehicle.
         if (current.CurrentGear != lastObservedGear)
         {
             lastObservedGear = current.CurrentGear;
@@ -712,7 +716,7 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
 {
     current = v;
     lastObservedGear = v != null ? v.CurrentGear : 1;
-    rightHandGearShiftBlend = 0f;
+    gearShiftHandBlend = 0f;
     if (gearShiftRoutine != null)
     {
         StopCoroutine(gearShiftRoutine);
@@ -1015,7 +1019,7 @@ IEnumerator TryExitThroughDoor()
 
     // Release the wheel before the exit animation starts.
     handIkActive = false;
-    rightHandGearShiftBlend = 0f;
+    gearShiftHandBlend = 0f;
     if (gearShiftRoutine != null)
     {
         StopCoroutine(gearShiftRoutine);
