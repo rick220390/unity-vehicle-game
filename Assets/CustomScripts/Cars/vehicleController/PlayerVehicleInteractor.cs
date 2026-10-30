@@ -19,6 +19,9 @@ public float maxExitSpeed = 8f;
 [Tooltip("Extra space kept between the car body and an automatically chosen fallback exit position.")]
 [Min(0.1f)] public float fallbackExitClearance = 0.8f;
 
+[Tooltip("Hide the player renderers while driving. Leave disabled to keep the third-person character visible inside the vehicle.")]
+public bool hidePlayerMeshWhileDriving = false;
+
 [Header("Disable while driving (drag in!)")]
 [Tooltip("Drag in vThirdPersonInput, vThirdPersonController, and vThirdPersonCamera.")]
 public MonoBehaviour[] disableWhileDriving;
@@ -543,7 +546,8 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
         invectorCam.enabled = false;
 
     SetPlayerPhysics(false);
-    SetPlayerVisible(false);
+    if (hidePlayerMeshWhileDriving)
+        SetPlayerVisible(false);
 
     Transform seat = seatPointOverride != null
         ? seatPointOverride
@@ -644,6 +648,17 @@ VehicleDoor FindDriverDoor(Vehicle targetVehicle)
     }
 
     return null;
+}
+
+void RestoreDrivingComponents()
+{
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour != null)
+            state.behaviour.enabled = state.wasEnabled;
+    }
+
+    disabledBehaviourStates.Clear();
 }
 
 bool TryFindExitPosition(Vehicle v, out Vector3 position)
