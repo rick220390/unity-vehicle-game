@@ -37,6 +37,12 @@ public class VehicleDoor : MonoBehaviour
     [Tooltip("Optional separate position where the character should finish after exiting through this door. Its forward direction controls the final facing direction.")]
     public Transform exitPoint;
 
+    [Header("Seated Character Alignment")]
+    [Tooltip("Fine adjustment from the seat marker, in the marker's local axes. Negative Y lowers the character; negative Z moves them backwards.")]
+    public Vector3 seatedLocalPositionOffset;
+    [Tooltip("Fine rotation adjustment from the seat marker, in local degrees. Use Y to correct the character's facing direction.")]
+    public Vector3 seatedLocalRotationOffset;
+
     [Header("Door Role")]
     public DoorRole role = DoorRole.Driver;
 
