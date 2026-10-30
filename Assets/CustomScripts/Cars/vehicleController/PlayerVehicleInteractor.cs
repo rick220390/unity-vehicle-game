@@ -631,15 +631,16 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
     if (behaviour == null || behaviour == vehicleAnimator)
         return;
 
-    // Do not disable Invector's controller or motor. The motor may receive
-    // Animator root motion through OnAnimatorMove; disabling it interrupts
-    // authored Mixamo movement and can leave the character frozen mid-transition.
-    // vThirdPersonInput is still disabled, so the player cannot walk or steer
-    // themselves while entering, seated, or exiting.
+    // Keep Invector's controller and motor available for animation root motion.
+    // Remember their original states, but do not disable them here. They are
+    // explicitly enabled for entry/exit and disabled only while seated.
     string typeName = behaviour.GetType().Name;
     if (typeName == "vThirdPersonController" ||
         typeName == "vThirdPersonMotor")
+    {
+        TrackInvectorTransitionBehaviour(behaviour);
         return;
+    }
 
     foreach (BehaviourEnabledState state in disabledBehaviourStates)
     {
@@ -654,13 +655,38 @@ void TrackAndDisableMovementBehaviour(MonoBehaviour behaviour)
     behaviour.enabled = false;
 }
 
+void TrackInvectorTransitionBehaviour(MonoBehaviour behaviour)
+{
+    if (behaviour == null)
+        return;
+
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour == behaviour)
+            return;
+    }
+
+    // Store the Inspector state so it can be restored when the player exits.
+    disabledBehaviourStates.Add(new BehaviourEnabledState(behaviour, behaviour.enabled));
+}
+
 void SetInvectorRootMotionBehavioursEnabled(bool enabled)
 {
-    // Intentionally left as a no-op for compatibility with the existing flow.
-    // The controller and motor are never disabled by this interactor, so their
-    // original Inspector enabled states remain untouched. Only vThirdPersonInput
-    // is disabled while driving, allowing Invector to continue receiving
-    // Animator root motion without accepting player movement input.
+    // Invector's controller/motor can receive Animator root motion through
+    // OnAnimatorMove. Force both on for the authored doorway animation, even if
+    // an earlier experiment left one disabled in the Inspector. During driving
+    // they are turned off; RestoreDrivingComponents returns their original states
+    // when the player exits. vThirdPersonInput remains locked throughout.
+    foreach (BehaviourEnabledState state in disabledBehaviourStates)
+    {
+        if (state.behaviour == null)
+            continue;
+
+        string typeName = state.behaviour.GetType().Name;
+        if (typeName == "vThirdPersonController" ||
+            typeName == "vThirdPersonMotor")
+            state.behaviour.enabled = enabled;
+    }
 }
 
 void AttachPlayerToSeat(Vehicle v, Transform seatPointOverride, VehicleDoor alignmentDoor = null)
