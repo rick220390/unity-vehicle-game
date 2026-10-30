@@ -80,6 +80,13 @@ public bool animateGearChanges = true;
 [Min(0f)] public float gearShiftHoldDuration = 0.12f;
 [Min(0.05f)] public float gearShiftReturnDuration = 0.22f;
 
+[Header("Driver Foot IK")]
+[Tooltip("Blend the driver's feet onto the configured resting and pedal targets while seated in a vehicle.")]
+public bool animateDrivingFootIk = true;
+[Tooltip("Hold this key to press the clutch in vehicles with Has Clutch Pedal enabled. This currently drives the visual IK only.")]
+public KeyCode manualClutchKey = KeyCode.LeftControl;
+[Min(0.1f)] public float footIkResponse = 10f;
+
 [Header("Driving HUD")]
 [Tooltip("Show speed, RPM, current gear and fuel level only while seated in a vehicle.")]
 public bool showDrivingTelemetry = true;
@@ -123,6 +130,13 @@ private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
 private bool handIkActive;
 private float handIkCurrentWeight;
+private float footIkCurrentWeight;
+private Vector3 leftFootIkPosition;
+private Quaternion leftFootIkRotation;
+private Vector3 rightFootIkPosition;
+private Quaternion rightFootIkRotation;
+private bool leftFootPoseInitialized;
+private bool rightFootPoseInitialized;
 private float gearShiftHandBlend;
 private int lastObservedGear = 1;
 private Coroutine gearShiftRoutine;
@@ -193,6 +207,113 @@ void OnAnimatorIK(int layerIndex)
 
     ApplyLeftHandIk();
     ApplyRightHandIk();
+
+    float footTargetWeight = current != null && handIkActive && animateDrivingFootIk
+        ? current.driverFootIkWeight
+        : 0f;
+    footIkCurrentWeight = Mathf.MoveTowards(
+        footIkCurrentWeight,
+        footTargetWeight,
+        Mathf.Max(0.1f, footIkResponse) * Time.deltaTime
+    );
+
+    ApplyLeftFootIk();
+    ApplyRightFootIk();
+}
+
+void ApplyLeftFootIk()
+{
+    if (current == null)
+    {
+        ApplyFootIk(AvatarIKGoal.LeftFoot, AvatarIKHint.LeftKnee, null, null,
+            ref leftFootIkPosition, ref leftFootIkRotation, ref leftFootPoseInitialized);
+        return;
+    }
+
+    Transform target = current.driverLeftFootRestTarget;
+    if (current.hasClutchPedal && Input.GetKey(manualClutchKey) && current.clutchFootTarget != null)
+        target = current.clutchFootTarget;
+
+    ApplyFootIk(
+        AvatarIKGoal.LeftFoot,
+        AvatarIKHint.LeftKnee,
+        target,
+        current.driverLeftKneeHint,
+        ref leftFootIkPosition,
+        ref leftFootIkRotation,
+        ref leftFootPoseInitialized
+    );
+}
+
+void ApplyRightFootIk()
+{
+    if (current == null)
+    {
+        ApplyFootIk(AvatarIKGoal.RightFoot, AvatarIKHint.RightKnee, null, null,
+            ref rightFootIkPosition, ref rightFootIkRotation, ref rightFootPoseInitialized);
+        return;
+    }
+
+    Transform target = current.driverRightFootRestTarget;
+
+    // Brake takes priority if both controls are held. Use the vehicle's actual
+    // input values so the foot follows the same controls that drive the car.
+    if (current.ServiceBrake > 0.05f && current.brakeFootTarget != null)
+        target = current.brakeFootTarget;
+    else if (current.Throttle > 0.05f && current.acceleratorFootTarget != null)
+        target = current.acceleratorFootTarget;
+
+    ApplyFootIk(
+        AvatarIKGoal.RightFoot,
+        AvatarIKHint.RightKnee,
+        target,
+        current.driverRightKneeHint,
+        ref rightFootIkPosition,
+        ref rightFootIkRotation,
+        ref rightFootPoseInitialized
+    );
+}
+
+void ApplyFootIk(
+    AvatarIKGoal foot,
+    AvatarIKHint knee,
+    Transform footTarget,
+    Transform kneeHint,
+    ref Vector3 currentPosition,
+    ref Quaternion currentRotation,
+    ref bool poseInitialized)
+{
+    float weight = footTarget != null ? footIkCurrentWeight : 0f;
+    vehicleAnimator.SetIKPositionWeight(foot, weight);
+    vehicleAnimator.SetIKRotationWeight(foot, weight);
+
+    if (footTarget != null)
+    {
+        if (!poseInitialized)
+        {
+            currentPosition = footTarget.position;
+            currentRotation = footTarget.rotation;
+            poseInitialized = true;
+        }
+        else
+        {
+            float blend = 1f - Mathf.Exp(-Mathf.Max(0.1f, footIkResponse) * Time.deltaTime);
+            currentPosition = Vector3.Lerp(currentPosition, footTarget.position, blend);
+            currentRotation = Quaternion.Slerp(currentRotation, footTarget.rotation, blend);
+        }
+
+        vehicleAnimator.SetIKPosition(foot, currentPosition);
+        vehicleAnimator.SetIKRotation(foot, currentRotation);
+    }
+    else
+    {
+        poseInitialized = false;
+    }
+
+    float hintWeight = footTarget != null && kneeHint != null ? weight : 0f;
+    vehicleAnimator.SetIKHintPositionWeight(knee, hintWeight);
+    if (kneeHint != null)
+        vehicleAnimator.SetIKHintPosition(knee, kneeHint.position);
 }
 
 void ApplyLeftHandIk()
@@ -717,6 +838,8 @@ void EnterReserved(Vehicle v, Transform seatPointOverride)
     current = v;
     lastObservedGear = v != null ? v.CurrentGear : 1;
     gearShiftHandBlend = 0f;
+    leftFootPoseInitialized = false;
+    rightFootPoseInitialized = false;
     if (gearShiftRoutine != null)
     {
         StopCoroutine(gearShiftRoutine);
@@ -1020,6 +1143,9 @@ IEnumerator TryExitThroughDoor()
     // Release the wheel before the exit animation starts.
     handIkActive = false;
     gearShiftHandBlend = 0f;
+    footIkCurrentWeight = 0f;
+    leftFootPoseInitialized = false;
+    rightFootPoseInitialized = false;
     if (gearShiftRoutine != null)
     {
         StopCoroutine(gearShiftRoutine);
