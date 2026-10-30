@@ -546,10 +546,14 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
 
     // The real hinged door and the Mixamo body animation run at the same time.
     door.OpenDoor();
+    // The authored entry animation takes approximately four seconds to reach
+    // the seated pose. Use that timing as the handover point so the player is
+    // attached to the moving vehicle immediately when the animation finishes.
     yield return PlayVehicleAnimation(
         enterTriggerName,
         enteringStateName,
-        entryAnimationFallback
+        entryAnimationFallback,
+        4f
     );
 
     SetInvectorRootMotionBehavioursEnabled(false);
@@ -728,14 +732,15 @@ bool HasAnimatorTrigger(string triggerName)
     return false;
 }
 
-IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fallbackDuration)
+IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fallbackDuration, float handoverDuration = -1f)
 {
     if (vehicleAnimator == null ||
         !vehicleAnimator.isActiveAndEnabled ||
         vehicleAnimatorLayer < 0 ||
         !HasAnimatorTrigger(triggerName))
     {
-        yield return new WaitForSeconds(Mathf.Max(0.1f, fallbackDuration));
+        float waitDuration = handoverDuration > 0f ? handoverDuration : fallbackDuration;
+        yield return new WaitForSeconds(Mathf.Max(0.1f, waitDuration));
         yield break;
     }
 
@@ -746,6 +751,15 @@ IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fal
     vehicleAnimator.ResetTrigger(exitTriggerName);
     vehicleAnimator.ResetTrigger(enterTriggerName);
     vehicleAnimator.SetTrigger(triggerName);
+
+    // Entry/exit handovers use the measured clip durations rather than waiting
+    // for state-transition polling to finish a few frames late. This keeps the
+    // player/vehicle attachment change synchronized with the visible animation.
+    if (handoverDuration > 0f)
+    {
+        yield return new WaitForSeconds(handoverDuration);
+        yield break;
+    }
 
     // Wait for the requested state to become active. A timeout prevents a
     // missing/misnamed Animator state from trapping the player indefinitely.
@@ -853,28 +867,31 @@ IEnumerator TryExitThroughDoor()
             : Quaternion.identity;
     }
 
-    // The exit animation starts with the character seated inside the vehicle.
-    // Keep the player attached to the seat while the door and Mixamo animation
-    // run together; move them outside only after the animation has completed.
+    // Detach immediately when F is pressed, preserving the player's current
+    // world pose. The exit animation must no longer inherit the vehicle's motion.
     if (current != exitingVehicle)
         yield break;
 
+    transform.SetParent(originalParent, true);
+
     // Restore only the Invector root-motion receiver for the exit clip.
-    // The input component stays disabled until the character is safely outside.
+    // Input remains locked until the character reaches the ExitPoint.
     SetInvectorRootMotionBehavioursEnabled(true);
 
     if (driverDoor != null)
         driverDoor.OpenDoor();
 
+    // The exit clip takes approximately two seconds. At that point place the
+    // player exactly at the configured ExitPoint and restore normal control.
     yield return PlayVehicleAnimation(
         exitTriggerName,
         exitingStateName,
-        exitAnimationFallback
+        exitAnimationFallback,
+        2f
     );
 
     SetInvectorRootMotionBehavioursEnabled(false);
 
-    transform.SetParent(originalParent, true);
     transform.SetPositionAndRotation(exitPosition, exitRotation);
     transform.localScale = originalLocalScale;
 
