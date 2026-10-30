@@ -101,6 +101,8 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Optional elbow bend target for the right arm.")]
     public Transform driverRightElbowHint;
     [Range(0f, 1f)] public float driverHandIkWeight = 1f;
+    [Tooltip("Optional gear-stick hand target. Place this where the driver's right hand should rest while changing gear.")]
+    public Transform gearShiftHandTarget;
 
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
