@@ -4,6 +4,7 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody))]
 public class Vehicle : MonoBehaviour
 {
+    public enum GearShiftHandSide { Left, Right }
     public static readonly List<Vehicle> All = new List<Vehicle>();
 
     [Header("Vehicle points")]
@@ -101,8 +102,10 @@ public class Vehicle : MonoBehaviour
     [Tooltip("Optional elbow bend target for the right arm.")]
     public Transform driverRightElbowHint;
     [Range(0f, 1f)] public float driverHandIkWeight = 1f;
-    [Tooltip("Optional gear-stick hand target. Place this where the driver's right hand should rest while changing gear.")]
+    [Tooltip("Optional gear-stick hand target. Place this where the selected gear-shift hand should reach.")]
     public Transform gearShiftHandTarget;
+    [Tooltip("Choose which hand operates the gear lever. Left is typical for right-hand-drive cars; Right is typical for left-hand-drive cars.")]
+    public GearShiftHandSide gearShiftHandSide = GearShiftHandSide.Left;
 
     [Header("Tyres and suspension")]
     [Min(0.1f)] public float wheelRadius = 0.34f;
