@@ -80,10 +80,12 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         savedBodyKinematic.Clear();
         savedColliderEnabled.Clear();
 
+        // The normal animated character owns the pose until ejection. Keep
+        // ragdoll bones dormant regardless of their imported prefab defaults.
         foreach (Rigidbody body in ragdollBodies)
-            savedBodyKinematic.Add(body != null && body.isKinematic);
+            savedBodyKinematic.Add(true);
         foreach (Collider collider in ragdollColliders)
-            savedColliderEnabled.Add(collider != null && collider.enabled);
+            savedColliderEnabled.Add(false);
 
         savedRootColliderEnabled = new bool[rootColliders.Length];
         for (int i = 0; i < rootColliders.Length; i++)
