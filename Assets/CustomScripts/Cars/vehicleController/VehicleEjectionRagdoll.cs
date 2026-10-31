@@ -160,6 +160,68 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             recoveryRoutine = StartCoroutine(RecoverAfterDelay());
     }
 
+    /// <summary>Activates the same ragdoll when a moving vehicle strikes the player.</summary>
+    public void RagdollFromImpact(Vector3 vehicleVelocity, Vector3 impactImpulse, Vector3 impactPoint)
+    {
+        if (ragdolled || !IsConfigured)
+            return;
+
+        if (recoveryRoutine != null)
+            StopCoroutine(recoveryRoutine);
+
+        transform.SetParent(null, true);
+        if (characterAnimator != null)
+            characterAnimator.enabled = false;
+
+        DisableMovementBehaviours();
+
+        foreach (Collider collider in rootColliders)
+            if (collider != null)
+                collider.enabled = false;
+
+        if (rootBody != null)
+        {
+            rootBody.isKinematic = true;
+            SetBodyVelocity(rootBody, Vector3.zero);
+            rootBody.angularVelocity = Vector3.zero;
+        }
+
+        SetRagdollActive(true);
+
+        foreach (Rigidbody body in ragdollBodies)
+        {
+            if (body == null)
+                continue;
+            SetBodyVelocity(body, vehicleVelocity);
+            body.angularVelocity = Vector3.zero;
+        }
+
+        Rigidbody pelvisBody = FindPelvisBody();
+        if (pelvisBody != null)
+        {
+            Vector3 impulse = impactImpulse;
+            if (impulse.sqrMagnitude < 0.01f)
+                impulse = (vehicleVelocity - GetRootVelocity()) * pelvisBody.mass;
+            pelvisBody.AddForceAtPosition(impulse, impactPoint, ForceMode.Impulse);
+            pelvisBody.AddTorque(Random.onUnitSphere * tumbleImpulse, ForceMode.Impulse);
+        }
+
+        ragdolled = true;
+        if (recoveryDelay > 0f)
+            recoveryRoutine = StartCoroutine(RecoverAfterDelay());
+    }
+
+    Vector3 GetRootVelocity()
+    {
+        if (rootBody == null)
+            return Vector3.zero;
+#if UNITY_6000_0_OR_NEWER
+        return rootBody.linearVelocity;
+#else
+        return rootBody.velocity;
+#endif
+    }
+
     void DisableMovementBehaviours()
     {
         savedBehaviours.Clear();
