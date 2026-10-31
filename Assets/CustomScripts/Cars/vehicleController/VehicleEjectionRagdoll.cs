@@ -282,6 +282,10 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     IEnumerator RecoverAfterDelay()
     {
         yield return new WaitForSeconds(recoveryDelay);
+        if (!ragdolled || recoveryInProgress)
+            yield break;
+
+        recoveryInProgress = true;
         yield return RecoverRoutine();
     }
 
