@@ -1426,6 +1426,13 @@ IEnumerator TryExitThroughDoor()
         transform.SetParent(originalParent, true);
         SetPlayerVisible(true);
 
+        // Leaving a vehicle through the ejection path must undo the same
+        // seated-player lockout as a normal exit. Restore the original collider
+        // and Rigidbody states first; VehicleEjectionRagdoll will then disable
+        // its own movement components and root colliders for physics simulation.
+        SetPlayerPhysics(true);
+        RestoreDrivingComponents();
+
         if (vehicleAnimator != null)
         {
             if (vehicleAnimatorLayer >= 0)
