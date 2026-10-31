@@ -1000,7 +1000,7 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     ));
 
     const float doorOpenAt = 1.05f;
-    const float doorCloseAt = 3.50f;
+    const float doorCloseAt = 3.65f;
     yield return new WaitForSeconds(doorOpenAt);
     door.OpenDoor();
 
