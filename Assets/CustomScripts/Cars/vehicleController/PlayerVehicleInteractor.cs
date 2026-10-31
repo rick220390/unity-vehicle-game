@@ -83,8 +83,11 @@ public bool animateGearChanges = true;
 [Header("Driver Foot IK")]
 [Tooltip("Blend the driver's feet onto the configured resting and pedal targets while seated in a vehicle.")]
 public bool animateDrivingFootIk = true;
-[Tooltip("Hold this key to press the clutch in vehicles with Has Clutch Pedal enabled. This currently drives the visual IK only.")]
-public KeyCode manualClutchKey = KeyCode.LeftControl;
+[Tooltip("How quickly the clutch foot moves onto and off the pedal during automatic gear changes.")]
+[Min(0.05f)] public float clutchPedalPressDuration = 0.12f;
+[Tooltip("Minimum time the clutch foot stays down after a gear change begins.")]
+[Min(0f)] public float clutchPedalHoldDuration = 0.12f;
+[Min(0.05f)] public float clutchPedalReleaseDuration = 0.18f;
 [Min(0.1f)] public float footIkResponse = 10f;
 
 [Header("Driving HUD")]
@@ -140,6 +143,8 @@ private bool rightFootPoseInitialized;
 private float gearShiftHandBlend;
 private int lastObservedGear = 1;
 private Coroutine gearShiftRoutine;
+private Coroutine clutchPedalRoutine;
+private float clutchPedalBlend;
 
 private readonly List<Collider> hiddenColliders = new List<Collider>();
 private readonly List<Renderer> hiddenRenderers = new List<Renderer>();
@@ -231,8 +236,9 @@ void ApplyLeftFootIk()
     }
 
     Transform target = current.driverLeftFootRestTarget;
-    if (current.hasClutchPedal && Input.GetKey(manualClutchKey) && current.clutchFootTarget != null)
-        target = current.clutchFootTarget;
+    Transform clutchTarget = current.hasClutchPedal ? current.clutchFootTarget : null;
+    if (target == null)
+        target = clutchTarget;
 
     ApplyFootIk(
         AvatarIKGoal.LeftFoot,
@@ -241,7 +247,9 @@ void ApplyLeftFootIk()
         current.driverLeftKneeHint,
         ref leftFootIkPosition,
         ref leftFootIkRotation,
-        ref leftFootPoseInitialized
+        ref leftFootPoseInitialized,
+        clutchTarget,
+        clutchPedalBlend
     );
 }
 
@@ -281,7 +289,9 @@ void ApplyFootIk(
     Transform kneeHint,
     ref Vector3 currentPosition,
     ref Quaternion currentRotation,
-    ref bool poseInitialized)
+    ref bool poseInitialized,
+    Transform blendTarget = null,
+    float blendAmount = 0f)
 {
     float weight = footTarget != null ? footIkCurrentWeight : 0f;
     vehicleAnimator.SetIKPositionWeight(foot, weight);
@@ -294,6 +304,13 @@ void ApplyFootIk(
         // behind the cabin as vehicle speed increases.
         Vector3 targetLocalPosition = current.transform.InverseTransformPoint(footTarget.position);
         Quaternion targetLocalRotation = Quaternion.Inverse(current.transform.rotation) * footTarget.rotation;
+        if (blendTarget != null && blendAmount > 0f)
+        {
+            Vector3 blendLocalPosition = current.transform.InverseTransformPoint(blendTarget.position);
+            Quaternion blendLocalRotation = Quaternion.Inverse(current.transform.rotation) * blendTarget.rotation;
+            targetLocalPosition = Vector3.Lerp(targetLocalPosition, blendLocalPosition, Mathf.Clamp01(blendAmount));
+            targetLocalRotation = Quaternion.Slerp(targetLocalRotation, blendLocalRotation, Mathf.Clamp01(blendAmount));
+        }
 
         if (!poseInitialized)
         {
@@ -365,6 +382,41 @@ void ApplyHandIkWithGearShift(AvatarIKGoal hand, AvatarIKHint elbow, Transform w
     vehicleAnimator.SetIKHintPositionWeight(elbow, hintWeight);
     if (elbowHint != null)
         vehicleAnimator.SetIKHintPosition(elbow, elbowHint.position);
+}
+
+void StartClutchPedalAnimation()
+{
+    if (clutchPedalRoutine != null)
+        StopCoroutine(clutchPedalRoutine);
+    clutchPedalRoutine = StartCoroutine(AnimateClutchPedal());
+}
+
+IEnumerator AnimateClutchPedal()
+{
+    yield return AnimateClutchBlend(0f, 1f, clutchPedalPressDuration);
+    float hold = Mathf.Max(clutchPedalHoldDuration, current != null ? current.gearShiftTime * 0.5f : 0f);
+    if (hold > 0f)
+        yield return new WaitForSeconds(hold);
+    yield return AnimateClutchBlend(1f, 0f, clutchPedalReleaseDuration);
+    clutchPedalRoutine = null;
+}
+
+IEnumerator AnimateClutchBlend(float start, float end, float duration)
+{
+    if (duration <= 0.001f)
+    {
+        clutchPedalBlend = end;
+        yield break;
+    }
+    float elapsed = 0f;
+    while (elapsed < duration)
+    {
+        elapsed += Time.deltaTime;
+        float t = Mathf.Clamp01(elapsed / duration);
+        clutchPedalBlend = Mathf.Lerp(start, end, Mathf.SmoothStep(0f, 1f, t));
+        yield return null;
+    }
+    clutchPedalBlend = end;
 }
 
 void StartGearShiftHandAnimation()
@@ -473,6 +525,8 @@ void Update()
             lastObservedGear = current.CurrentGear;
             if (animateGearChanges && current.gearShiftHandTarget != null && handIkActive)
                 StartGearShiftHandAnimation();
+            if (current.hasClutchPedal && current.clutchFootTarget != null && handIkActive)
+                StartClutchPedalAnimation();
         }
 
         if (Input.GetKeyDown(interactKey))
@@ -1150,6 +1204,12 @@ IEnumerator TryExitThroughDoor()
     handIkActive = false;
     gearShiftHandBlend = 0f;
     footIkCurrentWeight = 0f;
+    clutchPedalBlend = 0f;
+    if (clutchPedalRoutine != null)
+    {
+        StopCoroutine(clutchPedalRoutine);
+        clutchPedalRoutine = null;
+    }
     leftFootPoseInitialized = false;
     rightFootPoseInitialized = false;
     if (gearShiftRoutine != null)
