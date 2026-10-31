@@ -15,7 +15,15 @@ public KeyCode cameraToggleKey = KeyCode.V;
 
 [Header("Enter / Exit")]
 public float enterRange = 3f;
-public float maxExitSpeed = 8f;
+[Tooltip("Vehicle speed in metres/second above which pressing F ejects the driver into a ragdoll. 8 m/s is 28.8 km/h.")]
+[Min(0f)] public float maxExitSpeed = 8f;
+[Tooltip("At or above this speed, but below the ejection threshold, pressing F gently brakes the vehicle to a stop before playing the normal exit animation.")]
+[Min(0f)] public float slowExitStopThresholdKph = 6f;
+[Tooltip("Brake input used while gently stopping for a normal exit.")]
+[Range(0.05f, 1f)] public float exitStopBrakeInput = 0.35f;
+[Tooltip("The vehicle is considered stopped below this speed.")]
+[Min(0.1f)] public float exitStopSpeedKph = 0.5f;
+[Min(1f)] public float exitStopTimeout = 10f;
 [Tooltip("If a configured VehicleEjectionRagdoll is present, pressing F above maxExitSpeed ejects the driver instead of blocking exit.")]
 public bool allowMovingVehicleEjection = true;
 [Tooltip("Extra space kept between the car body and an automatically chosen fallback exit position.")]
@@ -112,6 +120,7 @@ private float cockpitHeadRoll;
 
 private Vehicle current;
 private bool cockpitView;
+private bool exitInProgress;
 private vThirdPersonCamera invectorCam;
 private Transform originalParent;
 private Vector3 originalLocalScale;
@@ -541,8 +550,11 @@ void Update()
                 StartClutchPedalAnimation();
         }
 
-        if (Input.GetKeyDown(interactKey))
+        if (Input.GetKeyDown(interactKey) && !exitInProgress)
+        {
+            exitInProgress = true;
             StartCoroutine(TryExitThroughDoor());
+        }
     }
 
     if (messageTimer > 0f)
@@ -1195,6 +1207,7 @@ IEnumerator TryExitThroughDoor()
     if (movingEjection && (ejectionRagdoll == null || !ejectionRagdoll.IsConfigured))
     {
         Say("Slow down to get out");
+        exitInProgress = false;
         yield break;
     }
 
@@ -1219,6 +1232,7 @@ IEnumerator TryExitThroughDoor()
     else if (!TryFindExitPosition(exitingVehicle, out exitPosition))
     {
         Say("No safe place to exit here");
+        exitInProgress = false;
         yield break;
     }
     else
@@ -1228,6 +1242,13 @@ IEnumerator TryExitThroughDoor()
             ? Quaternion.LookRotation(flatFwd, Vector3.up)
             : Quaternion.identity;
     }
+
+    // At low-to-moderate road speeds, do not play the standing exit animation
+    // while the vehicle is still travelling. Gently brake first so the character
+    // cannot be animated through the moving door/body. High-speed exits still eject.
+    float speedKphBeforeExit = exitingVehicle.Speed * 3.6f;
+    if (!movingEjection && speedKphBeforeExit >= slowExitStopThresholdKph)
+        yield return StopVehicleForExit(exitingVehicle);
 
     // Release the wheel before the exit animation starts.
     handIkActive = false;
@@ -1252,7 +1273,10 @@ IEnumerator TryExitThroughDoor()
     if (movingEjection)
     {
         if (current != exitingVehicle)
+        {
+            exitInProgress = false;
             yield break;
+        }
 
         if (driverDoor != null)
             driverDoor.OpenDoor();
@@ -1297,13 +1321,17 @@ IEnumerator TryExitThroughDoor()
         current = null;
         exitingVehicle.Release();
         cockpitView = false;
+        exitInProgress = false;
         yield break;
     }
 
     // Detach immediately when F is pressed, preserving the player's current
     // world pose. The exit animation must no longer inherit the vehicle's motion.
     if (current != exitingVehicle)
+    {
+        exitInProgress = false;
         yield break;
+    }
 
     transform.SetParent(originalParent, true);
 
@@ -1345,11 +1373,43 @@ IEnumerator TryExitThroughDoor()
     current = null;
     exitingVehicle.Release();
     cockpitView = false;
+    exitInProgress = false;
 
     if (driverDoor != null)
     {
         yield return new WaitForSeconds(0.15f);
         driverDoor.CloseDoor();
+    }
+}
+
+
+IEnumerator StopVehicleForExit(Vehicle exitingVehicle)
+{
+    if (exitingVehicle == null)
+        yield break;
+
+    float elapsed = 0f;
+    float stopSpeed = Mathf.Max(0.1f, exitStopSpeedKph) / 3.6f;
+    float brake = Mathf.Clamp(exitStopBrakeInput, 0.05f, 1f);
+
+    // Disable player throttle/steering input for the duration of the stop.
+    exitingVehicle.SetInput(0f, 0f, false, brake);
+
+    while (exitingVehicle != null && exitingVehicle.Speed > stopSpeed &&
+           elapsed < Mathf.Max(1f, exitStopTimeout))
+    {
+        // Keep applying a controlled service brake; do not use the handbrake
+        // while the vehicle still has meaningful road speed.
+        exitingVehicle.SetInput(0f, 0f, false, brake);
+        elapsed += Time.deltaTime;
+        yield return null;
+    }
+
+    if (exitingVehicle != null)
+    {
+        exitingVehicle.SetInput(0f, 0f, true, 1f);
+        yield return new WaitForFixedUpdate();
+        exitingVehicle.SetInput(0f, 0f, true, 1f);
     }
 }
 
