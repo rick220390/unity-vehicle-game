@@ -589,9 +589,8 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     // allowing the player to walk around with WASD.
     SetInvectorRootMotionBehavioursEnabled(true);
 
-    // Keep the physical door movement synchronized with the authored
-    // character animation. Start the character animation immediately, then
-    // open the door at 1.05s and begin closing it at 3.40s.
+    // Start the character animation immediately and keep the door open
+    // throughout the complete entry animation.
     Coroutine entryAnimation = StartCoroutine(PlayVehicleAnimation(
         enterTriggerName,
         enteringStateName,
@@ -599,16 +598,11 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         4f
     ));
 
-    const float doorOpenAt = 1.05f;
-    const float doorCloseAt = 3.65f;
-    yield return new WaitForSeconds(doorOpenAt);
+    // Open the door at the authored point in the entry animation.
+    yield return new WaitForSeconds(1.05f);
     door.OpenDoor();
 
-    yield return new WaitForSeconds(Mathf.Max(0f, doorCloseAt - doorOpenAt));
-    door.CloseDoor();
-
-    // The entry animation's four-second handover remains authoritative. The
-    // door has already started closing and should be shut before seat handover.
+    // Do not start closing while the character is still climbing into the car.
     yield return entryAnimation;
 
     SetInvectorRootMotionBehavioursEnabled(false);
@@ -620,8 +614,8 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
 
     AttachPlayerToSeat(targetVehicle, door.seatPointOverride, door);
 
-    // Let the character settle into the seat before closing the physical door.
-    yield return new WaitForSeconds(0.15f);
+    // Let the character settle fully into the seat before closing the door.
+    yield return new WaitForSeconds(0.30f);
     door.CloseDoor();
 }
 
