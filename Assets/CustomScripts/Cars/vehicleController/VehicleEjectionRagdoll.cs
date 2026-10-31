@@ -54,6 +54,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     private Vector3 pelvisRootLocalPosition;
     private bool savedRootBodyKinematic;
     private bool ragdolled;
+    private bool recoveryInProgress;
     private Coroutine recoveryRoutine;
 
     public bool IsConfigured => ragdollBodies != null && ragdollBodies.Length > 0 &&
@@ -120,6 +121,8 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 
         if (recoveryRoutine != null)
             StopCoroutine(recoveryRoutine);
+        recoveryRoutine = null;
+        recoveryInProgress = false;
 
         transform.SetPositionAndRotation(exitPosition, exitRotation);
         transform.SetParent(null, true);
@@ -182,6 +185,8 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 
         if (recoveryRoutine != null)
             StopCoroutine(recoveryRoutine);
+        recoveryRoutine = null;
+        recoveryInProgress = false;
 
         transform.SetParent(null, true);
         if (characterAnimator != null)
@@ -282,9 +287,10 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 
     public void Recover()
     {
-        if (!ragdolled || recoveryRoutine != null)
+        if (!ragdolled || recoveryInProgress)
             return;
 
+        recoveryInProgress = true;
         recoveryRoutine = StartCoroutine(RecoverRoutine());
     }
 
@@ -293,7 +299,6 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         if (!ragdolled)
             yield break;
 
-        recoveryRoutine = null;
         Vector3 recoveryPosition = transform.position;
         Quaternion recoveryRotation = transform.rotation;
         if (pelvis != null)
@@ -322,7 +327,9 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         if (rootBody != null)
         {
             rootBody.position = recoveryPosition;
-            rootBody.isKinematic = savedRootBodyKinematic;
+            // Hold the root steady while the get-up animation plays. Restoring
+            // a dynamic Rigidbody now would let gravity/physics fight the clip.
+            rootBody.isKinematic = true;
             SetBodyVelocity(rootBody, Vector3.zero);
             rootBody.angularVelocity = Vector3.zero;
         }
@@ -359,6 +366,13 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                         yield return null;
                     }
                 }
+                else if (!string.IsNullOrEmpty(standUpAnimatorState))
+                {
+                    Debug.LogWarning(
+                        $"VehicleEjectionRagdoll: Animator state '{standUpAnimatorState}' was not found on layer 0. Check the Stand Up state name in the Inspector.",
+                        this
+                    );
+                }
 
                 // Return to locomotion after the get-up clip, then restore the
                 // Animator's original root-motion setting.
@@ -373,7 +387,16 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                 state.behaviour.enabled = state.enabled;
 
         savedBehaviours.Clear();
+        if (rootBody != null)
+        {
+            rootBody.position = transform.position;
+            rootBody.isKinematic = savedRootBodyKinematic;
+            SetBodyVelocity(rootBody, Vector3.zero);
+            rootBody.angularVelocity = Vector3.zero;
+        }
         ragdolled = false;
+        recoveryInProgress = false;
+        recoveryRoutine = null;
     }
 
 
