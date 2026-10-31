@@ -987,17 +987,21 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     // allowing the player to walk around with WASD.
     SetInvectorRootMotionBehavioursEnabled(true);
 
-    // The real hinged door and the Mixamo body animation run at the same time.
-    door.OpenDoor();
-    // The authored entry animation takes approximately four seconds to reach
-    // the seated pose. Use that timing as the handover point so the player is
-    // attached to the moving vehicle immediately when the animation finishes.
-    yield return PlayVehicleAnimation(
+    // Start the character animation immediately and keep the door open
+    // throughout the complete entry animation.
+    Coroutine entryAnimation = StartCoroutine(PlayVehicleAnimation(
         enterTriggerName,
         enteringStateName,
         entryAnimationFallback,
         4f
-    );
+    ));
+
+    // Open the door at the authored point in the entry animation.
+    yield return new WaitForSeconds(1.05f);
+    door.OpenDoor();
+
+    // Do not start closing while the character is still climbing into the car.
+    yield return entryAnimation;
 
     SetInvectorRootMotionBehavioursEnabled(false);
 
@@ -1008,10 +1012,10 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
 
     AttachPlayerToSeat(targetVehicle, door.seatPointOverride, door);
 
-    // Keep the vehicle locked until the player is fully parented and settled.
-    yield return new WaitForSeconds(0.15f);
-    enterInProgress = false;
+    // Let the character settle fully into the seat before closing the door.
+    yield return new WaitForSeconds(0.30f);
     door.CloseDoor();
+    enterInProgress = false;
 }
 
 void EnterReserved(Vehicle v, Transform seatPointOverride)
