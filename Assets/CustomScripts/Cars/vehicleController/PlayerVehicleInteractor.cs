@@ -1427,6 +1427,10 @@ IEnumerator TryExitThroughDoor()
 
         current = null;
         exitingVehicle.Release();
+        // Keep the car physically moving with its inherited momentum, but make
+        // it apply its own brakes once the driver has been ejected so it cannot
+        // coast indefinitely across the level.
+        exitingVehicle.BeginUnoccupiedCoastDown();
         cockpitView = false;
         exitInProgress = false;
         yield break;
