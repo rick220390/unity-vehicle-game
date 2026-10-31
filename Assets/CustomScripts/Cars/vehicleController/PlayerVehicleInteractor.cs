@@ -16,6 +16,8 @@ public KeyCode cameraToggleKey = KeyCode.V;
 [Header("Enter / Exit")]
 public float enterRange = 3f;
 public float maxExitSpeed = 8f;
+[Tooltip("If a configured VehicleEjectionRagdoll is present, pressing F above maxExitSpeed ejects the driver instead of blocking exit.")]
+public bool allowMovingVehicleEjection = true;
 [Tooltip("Extra space kept between the car body and an automatically chosen fallback exit position.")]
 [Min(0.1f)] public float fallbackExitClearance = 0.8f;
 
@@ -1176,13 +1178,18 @@ IEnumerator TryExitThroughDoor()
     if (current == null)
         yield break;
 
-    if (current.Speed > maxExitSpeed)
+    bool movingEjection = current.Speed > maxExitSpeed;
+    Vehicle exitingVehicle = current;
+    VehicleEjectionRagdoll ejectionRagdoll = allowMovingVehicleEjection
+        ? GetComponent<VehicleEjectionRagdoll>()
+        : null;
+
+    if (movingEjection && ejectionRagdoll == null)
     {
         Say("Slow down to get out");
         yield break;
     }
 
-    Vehicle exitingVehicle = current;
     VehicleDoor driverDoor = FindDriverDoor(exitingVehicle);
 
     // Prefer the driver's dedicated ExitPoint. If it is missing or obstructed,
@@ -1230,6 +1237,54 @@ IEnumerator TryExitThroughDoor()
     {
         StopCoroutine(gearShiftRoutine);
         gearShiftRoutine = null;
+    }
+
+    // A high-speed exit is a physical ejection, not the authored standing exit.
+    // Open the configured door briefly, then transfer vehicle momentum to the ragdoll.
+    if (movingEjection)
+    {
+        if (current != exitingVehicle)
+            yield break;
+
+        if (driverDoor != null)
+            driverDoor.OpenDoor();
+
+        yield return new WaitForSeconds(0.18f);
+
+        Rigidbody vehicleBody = exitingVehicle.GetComponent<Rigidbody>();
+        Vector3 vehicleVelocity = Vector3.zero;
+        if (vehicleBody != null)
+        {
+#if UNITY_6000_0_OR_NEWER
+            vehicleVelocity = vehicleBody.linearVelocity;
+#else
+            vehicleVelocity = vehicleBody.velocity;
+#endif
+        }
+
+        Vector3 outwardDirection = driverDoor != null
+            ? driverDoor.transform.right
+            : exitingVehicle.transform.right;
+
+        transform.SetParent(originalParent, true);
+        SetPlayerVisible(true);
+
+        if (vehicleAnimator != null)
+        {
+            if (vehicleAnimatorLayer >= 0)
+                vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 0f);
+            vehicleAnimator.applyRootMotion = animatorRootMotionWasEnabled;
+        }
+
+        ejectionRagdoll.Eject(vehicleVelocity, exitPosition, exitRotation, outwardDirection);
+
+        if (invectorCam != null)
+            invectorCam.enabled = invectorCameraWasEnabled;
+
+        current = null;
+        exitingVehicle.Release();
+        cockpitView = false;
+        yield break;
     }
 
     // Detach immediately when F is pressed, preserving the player's current
