@@ -1257,7 +1257,18 @@ IEnumerator TryExitThroughDoor()
     // cannot be animated through the moving door/body. High-speed exits still eject.
     float speedKphBeforeExit = exitingVehicle.Speed * 3.6f;
     if (!movingEjection && speedKphBeforeExit >= slowExitStopThresholdKph)
+    {
         yield return StopVehicleForExit(exitingVehicle);
+
+        // Never start the standing exit animation if the vehicle failed to stop.
+        float remainingSpeedKph = exitingVehicle != null ? exitingVehicle.Speed * 3.6f : 0f;
+        if (remainingSpeedKph > Mathf.Max(0.5f, exitStopSpeedKph) + 0.5f)
+        {
+            Say("Vehicle could not stop safely");
+            exitInProgress = false;
+            yield break;
+        }
+    }
 
     // Release the wheel before the exit animation starts.
     handIkActive = false;
