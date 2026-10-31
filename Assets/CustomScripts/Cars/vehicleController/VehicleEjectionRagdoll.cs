@@ -397,27 +397,36 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                 // visually stuck on the final get-up pose in some controllers.
                 if (!string.IsNullOrEmpty(recoveryAnimatorState))
                 {
-                    string fullStatePath = "Base Layer." + recoveryAnimatorState;
-                    int locomotionHash = Animator.StringToHash(fullStatePath);
-                    if (characterAnimator.HasState(0, locomotionHash))
-                    {
-                        characterAnimator.CrossFadeInFixedTime(locomotionHash, 0.15f, 0, 0f);
-                        float blendElapsed = 0f;
-                        while (blendElapsed < 2f)
-                        {
-                            AnimatorStateInfo locomotionState = characterAnimator.GetCurrentAnimatorStateInfo(0);
-                            if (!characterAnimator.IsInTransition(0) &&
-                                locomotionState.IsName(recoveryAnimatorState))
-                                break;
+                    // Use the state name supplied in the Inspector directly.
+                    // Some Invector controllers expose the state through a
+                    // nested state-machine path, so constructing "Base Layer."
+                    // + name and validating that hash can incorrectly reject
+                    // a state that Animator.Play(name) can resolve.
+                    characterAnimator.CrossFadeInFixedTime(
+                        recoveryAnimatorState,
+                        0.15f,
+                        0,
+                        0f
+                    );
 
-                            blendElapsed += Time.deltaTime;
-                            yield return null;
-                        }
-                    }
-                    else
+                    float blendElapsed = 0f;
+                    int expectedShortNameHash = Animator.StringToHash(recoveryAnimatorState);
+                    while (blendElapsed < 2f)
                     {
-                        Debug.LogError(
-                            $"VehicleEjectionRagdoll: Recovery state '{fullStatePath}' was not found on Animator layer 0. Check the Recovery Animator State field.",
+                        AnimatorStateInfo locomotionState = characterAnimator.GetCurrentAnimatorStateInfo(0);
+                        if (!characterAnimator.IsInTransition(0) &&
+                            locomotionState.shortNameHash == expectedShortNameHash)
+                            break;
+
+                        blendElapsed += Time.deltaTime;
+                        yield return null;
+                    }
+
+                    AnimatorStateInfo finalState = characterAnimator.GetCurrentAnimatorStateInfo(0);
+                    if (finalState.shortNameHash != expectedShortNameHash)
+                    {
+                        Debug.LogWarning(
+                            $"VehicleEjectionRagdoll: Animator did not enter recovery state '{recoveryAnimatorState}'. Current state hash: {finalState.shortNameHash}. Check the Animator layer and state name.",
                             this
                         );
                     }
