@@ -596,11 +596,11 @@ void LateUpdate()
         // Invector normally follows the player root. During a ragdoll the root
         // stays at the ejection point while the Mixamo bones move independently,
         // so take camera ownership and follow the pelvis instead.
-        if (!ragdollCameraActive)
+        if (!ragdollCameraStateCaptured)
         {
-            // Capture the camera's live state at the moment any ragdoll starts.
-            // Impact ragdolls can happen while walking, without EnterReserved
-            // ever having run, so the cached vehicle-entry value is not reliable.
+            // For an on-foot impact, capture the live camera state. Vehicle
+            // ejection captures the pre-driving state explicitly before it
+            // disables the camera, because disabled is expected while seated.
             invectorCameraWasEnabled = invectorCam != null && invectorCam.enabled;
             ragdollCameraStateCaptured = true;
         }
@@ -1492,6 +1492,12 @@ IEnumerator TryExitThroughDoor()
         ejectionRagdoll.Eject(vehicleVelocity, exitPosition, exitRotation, outwardDirection);
         if (driverDoor != null)
             driverDoor.CloseDoor();
+
+        // EnterReserved cached the camera's original Inspector/runtime state
+        // before disabling it for driving. Preserve that state now: reading
+        // invectorCam.enabled here would incorrectly record false because the
+        // camera is intentionally disabled while the player is seated.
+        ragdollCameraStateCaptured = true;
 
         // Keep Invector disabled during the ragdoll. Its target is the
         // stationary player root, not the independently simulated pelvis.
