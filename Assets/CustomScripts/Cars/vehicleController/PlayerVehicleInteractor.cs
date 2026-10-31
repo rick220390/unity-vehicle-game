@@ -480,6 +480,14 @@ void ApplyHandIk(AvatarIKGoal hand, AvatarIKHint elbow, Transform handTarget, Tr
 
 void Update()
 {
+    VehicleEjectionRagdoll activeRagdoll = GetComponent<VehicleEjectionRagdoll>();
+    if (current == null && activeRagdoll != null && activeRagdoll.IsRagdolled)
+    {
+        nearby = null;
+        nearbyDoor = null;
+        return;
+    }
+
     if (current == null)
     {
         // Door markers take priority. Vehicles with configured doors are not
