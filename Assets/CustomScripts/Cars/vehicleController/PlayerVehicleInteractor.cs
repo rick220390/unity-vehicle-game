@@ -598,11 +598,11 @@ void LateUpdate()
         if (!ragdollCameraActive)
         {
             ragdollCameraActive = true;
-            Transform pelvisTarget = ragdoll.pelvis != null ? ragdoll.pelvis : transform;
-            SetInvectorCameraTarget(pelvisTarget);
-
             if (invectorCam != null)
                 invectorCam.enabled = invectorCameraWasEnabled;
+
+            Transform pelvisTarget = ragdoll.pelvis != null ? ragdoll.pelvis : transform;
+            SetInvectorCameraTarget(pelvisTarget);
         }
 
         return;
@@ -1417,12 +1417,12 @@ IEnumerator TryExitThroughDoor()
         // for driving. Retarget the same Invector camera to the moving pelvis and
         // restore its original enabled state; do not create a second camera view.
         ragdollCameraStateCaptured = true;
+        if (invectorCam != null)
+            invectorCam.enabled = invectorCameraWasEnabled;
         Transform pelvisTarget = ejectionRagdoll.pelvis != null
             ? ejectionRagdoll.pelvis
             : transform;
         SetInvectorCameraTarget(pelvisTarget);
-        if (invectorCam != null)
-            invectorCam.enabled = invectorCameraWasEnabled;
         ragdollCameraActive = true;
 
         current = null;
