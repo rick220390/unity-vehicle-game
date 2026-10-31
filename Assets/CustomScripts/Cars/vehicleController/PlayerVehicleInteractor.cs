@@ -58,16 +58,6 @@ public float camLookHeight = 1.2f;
 public float camPositionSmooth = 6f;
 public float camRotationSmooth = 5f;
 
-[Header("Ragdoll Camera")]
-[Tooltip("Distance behind the character while following an ejection ragdoll.")]
-[Min(1f)] public float ragdollCameraDistance = 4.5f;
-[Tooltip("Height above the ragdoll pelvis for the follow camera.")]
-[Min(0f)] public float ragdollCameraHeight = 1.5f;
-[Tooltip("Vertical offset above the pelvis that the camera looks at.")]
-public float ragdollCameraLookHeight = 0.45f;
-[Tooltip("How quickly the camera follows the moving ragdoll.")]
-[Min(0.1f)] public float ragdollCameraSmooth = 10f;
-
 [Header("Camera Collision")]
 [Tooltip("Radius used to keep the driving camera away from walls and other obstacles.")]
 [Min(0.05f)] public float cameraCollisionRadius = 0.2f;
@@ -593,29 +583,32 @@ void LateUpdate()
     VehicleEjectionRagdoll ragdoll = GetComponent<VehicleEjectionRagdoll>();
     if (ragdoll != null && ragdoll.IsRagdolled)
     {
-        // Invector normally follows the player root. During a ragdoll the root
-        // stays at the ejection point while the Mixamo bones move independently,
-        // so take camera ownership and follow the pelvis instead.
+        // Use Invector's normal third-person camera for both impact and vehicle
+        // ejection ragdolls. Only its follow target changes: the player root is
+        // replaced by the independently simulated pelvis.
         if (!ragdollCameraStateCaptured)
         {
-            // For an on-foot impact, capture the live camera state. Vehicle
-            // ejection captures the pre-driving state explicitly before it
-            // disables the camera, because disabled is expected while seated.
+            // Impact ragdolls begin on foot, so preserve the camera's live state.
+            // Vehicle ejection has already cached the pre-driving state in
+            // EnterReserved before the camera was disabled for the seat.
             invectorCameraWasEnabled = invectorCam != null && invectorCam.enabled;
             ragdollCameraStateCaptured = true;
         }
 
-        if (invectorCam != null && invectorCam.enabled)
-            invectorCam.enabled = false;
-        ragdollCameraActive = true;
-        UpdateRagdollCamera(ragdoll);
+        if (!ragdollCameraActive)
+        {
+            ragdollCameraActive = true;
+            Transform pelvisTarget = ragdoll.pelvis != null ? ragdoll.pelvis : transform;
+            SetInvectorCameraTarget(pelvisTarget);
+
+            if (invectorCam != null)
+                invectorCam.enabled = invectorCameraWasEnabled;
+        }
+
         return;
     }
 
-    // VehicleEjectionRagdoll has finished recovery and restored the animated
-    // character. Rebind Invector's target before handing camera ownership back:
-    // after an ejection the player root has been detached and repositioned, while
-    // the camera may still hold its pre-ejection follow state.
+    // Recovery restores the original player root as Invector's follow target.
     if (ragdollCameraActive)
     {
         ragdollCameraActive = false;
@@ -803,103 +796,30 @@ void LateUpdate()
 
 IEnumerator RestoreCameraAfterRagdoll()
 {
-    // Let the recovery frame finish restoring the root transform, colliders,
-    // Animator and Invector movement components before reinitialising the camera.
+    // Let recovery finish restoring the root transform, colliders, Animator and
+    // Invector movement components before returning the follow target to the root.
     yield return null;
 
-    if (invectorCam != null && ragdollCameraStateCaptured && invectorCameraWasEnabled)
+    if (ragdollCameraStateCaptured)
     {
-        invectorCam.enabled = true;
-
-        // Invector exposes SetMainTarget on its third-person camera. SendMessage
-        // keeps this script compatible with Invector versions where the method
-        // is present without introducing a hard dependency on that API.
-        invectorCam.SendMessage("SetMainTarget", transform, SendMessageOptions.DontRequireReceiver);
-
-        // Put the camera at a valid follow pose immediately. This avoids leaving
-        // it parked at the last ragdoll-camera position while Invector resumes its
-        // own LateUpdate and rebuilds its normal orbit.
-        if (cam != null)
-        {
-            Vector3 target = transform.position + Vector3.up * camLookHeight;
-            Quaternion orbit = Quaternion.Euler(cameraPitch, transform.eulerAngles.y + cameraYaw, 0f);
-            float distance = Mathf.Max(1f, camDistance * 0.85f);
-            cam.transform.position = target - orbit * Vector3.forward * distance
-                + Vector3.up * (camHeight - camLookHeight);
-            Vector3 direction = target - cam.transform.position;
-            if (direction.sqrMagnitude > 0.001f)
-                cam.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
-        }
+        SetInvectorCameraTarget(transform);
+        if (invectorCam != null)
+            invectorCam.enabled = invectorCameraWasEnabled;
     }
 
     ragdollCameraStateCaptured = false;
     ragdollCameraRestoreRoutine = null;
 }
 
-void UpdateRagdollCamera(VehicleEjectionRagdoll ragdoll)
+void SetInvectorCameraTarget(Transform target)
 {
-    Transform followTarget = ragdoll != null ? ragdoll.pelvis : null;
-    if (followTarget == null)
-        followTarget = transform;
+    if (invectorCam == null || target == null)
+        return;
 
-    Vector3 lookTarget = followTarget.position + Vector3.up * ragdollCameraLookHeight;
-
-    // Keep the camera upright and use the character's original facing direction
-    // as the orbit reference; do not inherit the tumbling pelvis rotation.
-    cameraYaw += Input.GetAxis("Mouse X") * mouseSensitivity;
-    cameraPitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
-    cameraPitch = Mathf.Clamp(cameraPitch, minCameraPitch, maxCameraPitch);
-
-    Quaternion orbitRotation = Quaternion.Euler(
-        cameraPitch,
-        transform.eulerAngles.y + cameraYaw,
-        0f
-    );
-
-    Vector3 desiredPosition = lookTarget
-        - orbitRotation * Vector3.forward * Mathf.Max(1f, ragdollCameraDistance)
-        + Vector3.up * ragdollCameraHeight;
-
-    Vector3 offset = desiredPosition - lookTarget;
-    float distance = offset.magnitude;
-    if (distance > 0.01f)
-    {
-        Vector3 direction = offset / distance;
-        int hitCount = Physics.SphereCastNonAlloc(
-            lookTarget,
-            Mathf.Max(0.05f, cameraCollisionRadius),
-            direction,
-            cameraCastHits,
-            distance,
-            cameraCollisionMask,
-            QueryTriggerInteraction.Ignore
-        );
-
-        float nearest = float.PositiveInfinity;
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider hit = cameraCastHits[i].collider;
-            if (hit == null || hit.transform == transform || hit.transform.IsChildOf(transform))
-                continue;
-            if (hit.GetComponentInParent<Vehicle>() != null)
-                continue;
-            if (cameraCastHits[i].distance < nearest)
-                nearest = cameraCastHits[i].distance;
-        }
-
-        if (!float.IsInfinity(nearest))
-            desiredPosition = lookTarget + direction * Mathf.Max(0.25f, nearest - cameraCollisionPadding);
-    }
-
-    float positionBlend = 1f - Mathf.Exp(-Mathf.Max(0.1f, ragdollCameraSmooth) * Time.deltaTime);
-    cam.transform.position = Vector3.Lerp(cam.transform.position, desiredPosition, positionBlend);
-
-    Vector3 lookDirection = lookTarget - cam.transform.position;
-    if (lookDirection.sqrMagnitude > 0.001f)
-    {
-        Quaternion desiredRotation = Quaternion.LookRotation(lookDirection, Vector3.up);
-        cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, desiredRotation, positionBlend);
-    }
+    // vThirdPersonCamera's SetMainTarget keeps its internal follow/lock state in
+    // sync. This avoids manually moving the Camera transform and retains all of
+    // Invector's normal orbit, smoothing and collision behaviour.
+    invectorCam.SendMessage("SetMainTarget", target, SendMessageOptions.DontRequireReceiver);
 }
 
 // ---------------- Cockpit Head Movement ----------------
@@ -1493,16 +1413,16 @@ IEnumerator TryExitThroughDoor()
         if (driverDoor != null)
             driverDoor.CloseDoor();
 
-        // EnterReserved cached the camera's original Inspector/runtime state
-        // before disabling it for driving. Preserve that state now: reading
-        // invectorCam.enabled here would incorrectly record false because the
-        // camera is intentionally disabled while the player is seated.
+        // EnterReserved cached the camera's original state before disabling it
+        // for driving. Retarget the same Invector camera to the moving pelvis and
+        // restore its original enabled state; do not create a second camera view.
         ragdollCameraStateCaptured = true;
-
-        // Keep Invector disabled during the ragdoll. Its target is the
-        // stationary player root, not the independently simulated pelvis.
+        Transform pelvisTarget = ejectionRagdoll.pelvis != null
+            ? ejectionRagdoll.pelvis
+            : transform;
+        SetInvectorCameraTarget(pelvisTarget);
         if (invectorCam != null)
-            invectorCam.enabled = false;
+            invectorCam.enabled = invectorCameraWasEnabled;
         ragdollCameraActive = true;
 
         current = null;
