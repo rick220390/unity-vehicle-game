@@ -58,6 +58,16 @@ public float camLookHeight = 1.2f;
 public float camPositionSmooth = 6f;
 public float camRotationSmooth = 5f;
 
+[Header("Ragdoll Camera")]
+[Tooltip("Distance behind the character while following an ejection ragdoll.")]
+[Min(1f)] public float ragdollCameraDistance = 4.5f;
+[Tooltip("Height above the ragdoll pelvis for the follow camera.")]
+[Min(0f)] public float ragdollCameraHeight = 1.5f;
+[Tooltip("Vertical offset above the pelvis that the camera looks at.")]
+public float ragdollCameraLookHeight = 0.45f;
+[Tooltip("How quickly the camera follows the moving ragdoll.")]
+[Min(0.1f)] public float ragdollCameraSmooth = 10f;
+
 [Header("Camera Collision")]
 [Tooltip("Radius used to keep the driving camera away from walls and other obstacles.")]
 [Min(0.05f)] public float cameraCollisionRadius = 0.2f;
@@ -141,6 +151,7 @@ private struct BehaviourEnabledState
 private readonly List<BehaviourEnabledState> disabledBehaviourStates =
     new List<BehaviourEnabledState>();
 private bool invectorCameraWasEnabled;
+private bool ragdollCameraActive;
 private bool playerRigidbodyWasKinematic;
 private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
@@ -574,7 +585,32 @@ void Update()
 
 void LateUpdate()
 {
-    if (current == null || cam == null)
+    if (cam == null)
+        return;
+
+    VehicleEjectionRagdoll ragdoll = GetComponent<VehicleEjectionRagdoll>();
+    if (ragdoll != null && ragdoll.IsRagdolled)
+    {
+        // Invector normally follows the player root. During a ragdoll the root
+        // stays at the ejection point while the Mixamo bones move independently,
+        // so take camera ownership and follow the pelvis instead.
+        if (invectorCam != null && invectorCam.enabled)
+            invectorCam.enabled = false;
+        ragdollCameraActive = true;
+        UpdateRagdollCamera(ragdoll);
+        return;
+    }
+
+    // VehicleEjectionRagdoll has finished recovery and restored the animated
+    // character. Give camera ownership back to Invector at that point.
+    if (ragdollCameraActive)
+    {
+        ragdollCameraActive = false;
+        if (invectorCam != null)
+            invectorCam.enabled = invectorCameraWasEnabled;
+    }
+
+    if (current == null)
         return;
 
     // Cockpit view follows the vehicle's assigned camera point. Configure
@@ -748,6 +784,72 @@ void LateUpdate()
             desiredRotation,
             rotationBlend
         );
+    }
+}
+
+void UpdateRagdollCamera(VehicleEjectionRagdoll ragdoll)
+{
+    Transform followTarget = ragdoll != null ? ragdoll.pelvis : null;
+    if (followTarget == null)
+        followTarget = transform;
+
+    Vector3 lookTarget = followTarget.position + Vector3.up * ragdollCameraLookHeight;
+
+    // Keep the camera upright and use the character's original facing direction
+    // as the orbit reference; do not inherit the tumbling pelvis rotation.
+    cameraYaw += Input.GetAxis("Mouse X") * mouseSensitivity;
+    cameraPitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
+    cameraPitch = Mathf.Clamp(cameraPitch, minCameraPitch, maxCameraPitch);
+
+    Quaternion orbitRotation = Quaternion.Euler(
+        cameraPitch,
+        transform.eulerAngles.y + cameraYaw,
+        0f
+    );
+
+    Vector3 desiredPosition = lookTarget
+        - orbitRotation * Vector3.forward * Mathf.Max(1f, ragdollCameraDistance)
+        + Vector3.up * ragdollCameraHeight;
+
+    Vector3 offset = desiredPosition - lookTarget;
+    float distance = offset.magnitude;
+    if (distance > 0.01f)
+    {
+        Vector3 direction = offset / distance;
+        int hitCount = Physics.SphereCastNonAlloc(
+            lookTarget,
+            Mathf.Max(0.05f, cameraCollisionRadius),
+            direction,
+            cameraCastHits,
+            distance,
+            cameraCollisionMask,
+            QueryTriggerInteraction.Ignore
+        );
+
+        float nearest = float.PositiveInfinity;
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider hit = cameraCastHits[i].collider;
+            if (hit == null || hit.transform == transform || hit.transform.IsChildOf(transform))
+                continue;
+            if (hit.GetComponentInParent<Vehicle>() != null)
+                continue;
+            if (cameraCastHits[i].distance < nearest)
+                nearest = cameraCastHits[i].distance;
+        }
+
+        if (!float.IsInfinity(nearest))
+            desiredPosition = lookTarget + direction * Mathf.Max(0.25f, nearest - cameraCollisionPadding);
+    }
+
+    float positionBlend = 1f - Mathf.Exp(-Mathf.Max(0.1f, ragdollCameraSmooth) * Time.deltaTime);
+    cam.transform.position = Vector3.Lerp(cam.transform.position, desiredPosition, positionBlend);
+
+    Vector3 lookDirection = lookTarget - cam.transform.position;
+    if (lookDirection.sqrMagnitude > 0.001f)
+    {
+        Quaternion desiredRotation = Quaternion.LookRotation(lookDirection, Vector3.up);
+        cam.transform.rotation = Quaternion.Slerp(cam.transform.rotation, desiredRotation, positionBlend);
     }
 }
 
@@ -1335,8 +1437,11 @@ IEnumerator TryExitThroughDoor()
         if (driverDoor != null)
             driverDoor.CloseDoor();
 
+        // Keep Invector disabled during the ragdoll. Its target is the
+        // stationary player root, not the independently simulated pelvis.
         if (invectorCam != null)
-            invectorCam.enabled = invectorCameraWasEnabled;
+            invectorCam.enabled = false;
+        ragdollCameraActive = true;
 
         current = null;
         exitingVehicle.Release();
