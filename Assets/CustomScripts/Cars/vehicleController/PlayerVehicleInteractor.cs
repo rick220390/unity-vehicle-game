@@ -121,6 +121,7 @@ private float cockpitHeadRoll;
 private Vehicle current;
 private bool cockpitView;
 private bool exitInProgress;
+private bool enterInProgress;
 private vThirdPersonCamera invectorCam;
 private Transform originalParent;
 private Vector3 originalLocalScale;
@@ -497,6 +498,16 @@ void Update()
     {
         nearby = null;
         nearbyDoor = null;
+        return;
+    }
+
+    // Entry owns the vehicle controls until the doorway animation has finished
+    // and the character has been attached to the seat. This prevents the car
+    // moving while the player is still standing beside/inside the bodywork.
+    if (current != null && enterInProgress)
+    {
+        if (messageTimer > 0f)
+            messageTimer -= Time.deltaTime;
         return;
     }
 
@@ -938,6 +949,11 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
     if (!targetVehicle.TryReserve())
         yield break;
 
+    // Lock vehicle controls immediately. The character must finish the doorway
+    // animation and be attached to the seat before driving input is accepted.
+    enterInProgress = true;
+    targetVehicle.SetInput(0f, 0f, true, 1f);
+
     // Prepare the player and reserve the vehicle before either animation starts.
     handIkActive = false;
     EnterReserved(targetVehicle, door.seatPointOverride);
@@ -992,8 +1008,9 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
 
     AttachPlayerToSeat(targetVehicle, door.seatPointOverride, door);
 
-    // Let the character settle into the seat before closing the physical door.
+    // Keep the vehicle locked until the player is fully parented and settled.
     yield return new WaitForSeconds(0.15f);
+    enterInProgress = false;
     door.CloseDoor();
 }
 
