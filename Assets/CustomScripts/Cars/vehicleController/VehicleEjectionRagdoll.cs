@@ -57,6 +57,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     private bool[] savedRootColliderEnabled;
     private bool savedAnimatorEnabled;
     private bool savedAnimatorApplyRootMotion;
+    private float savedAnimatorSpeed = 1f;
     private Vector3 pelvisRootLocalPosition;
     private bool savedRootBodyKinematic;
     private bool ragdolled;
@@ -114,6 +115,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         savedRootBodyKinematic = rootBody != null && rootBody.isKinematic;
         savedAnimatorEnabled = characterAnimator != null && characterAnimator.enabled;
         savedAnimatorApplyRootMotion = characterAnimator != null && characterAnimator.applyRootMotion;
+        savedAnimatorSpeed = characterAnimator != null ? characterAnimator.speed : 1f;
     }
 
     /// <summary>Called by PlayerVehicleInteractor after the door has opened.</summary>
@@ -355,6 +357,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             characterAnimator.enabled = savedAnimatorEnabled;
             if (characterAnimator.enabled)
             {
+                characterAnimator.speed = savedAnimatorSpeed;
                 characterAnimator.applyRootMotion = standUpApplyRootMotion;
                 bool playedStandUp = false;
                 if (!string.IsNullOrEmpty(selectedStandUpState))
@@ -388,10 +391,38 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                     );
                 }
 
-                // Return to locomotion after the get-up clip, then restore the
-                // Animator's original root-motion setting.
+                // Blend back into the real Base Layer locomotion state and
+                // let the transition finish before Invector starts driving its
+                // movement parameters again. A direct Play() can leave the rig
+                // visually stuck on the final get-up pose in some controllers.
                 if (!string.IsNullOrEmpty(recoveryAnimatorState))
-                    characterAnimator.Play(recoveryAnimatorState, 0, 0f);
+                {
+                    string fullStatePath = "Base Layer." + recoveryAnimatorState;
+                    int locomotionHash = Animator.StringToHash(fullStatePath);
+                    if (characterAnimator.HasState(0, locomotionHash))
+                    {
+                        characterAnimator.CrossFadeInFixedTime(locomotionHash, 0.15f, 0, 0f);
+                        float blendElapsed = 0f;
+                        while (blendElapsed < 2f)
+                        {
+                            AnimatorStateInfo locomotionState = characterAnimator.GetCurrentAnimatorStateInfo(0);
+                            if (!characterAnimator.IsInTransition(0) &&
+                                locomotionState.IsName(recoveryAnimatorState))
+                                break;
+
+                            blendElapsed += Time.deltaTime;
+                            yield return null;
+                        }
+                    }
+                    else
+                    {
+                        Debug.LogError(
+                            $"VehicleEjectionRagdoll: Recovery state '{fullStatePath}' was not found on Animator layer 0. Check the Recovery Animator State field.",
+                            this
+                        );
+                    }
+                }
+
                 characterAnimator.applyRootMotion = savedAnimatorApplyRootMotion;
             }
         }
