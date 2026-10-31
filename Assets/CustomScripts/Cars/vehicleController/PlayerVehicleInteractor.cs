@@ -1184,7 +1184,7 @@ IEnumerator TryExitThroughDoor()
         ? GetComponent<VehicleEjectionRagdoll>()
         : null;
 
-    if (movingEjection && ejectionRagdoll == null)
+    if (movingEjection && (ejectionRagdoll == null || !ejectionRagdoll.IsConfigured))
     {
         Say("Slow down to get out");
         yield break;
@@ -1262,9 +1262,12 @@ IEnumerator TryExitThroughDoor()
 #endif
         }
 
-        Vector3 outwardDirection = driverDoor != null
-            ? driverDoor.transform.right
-            : exitingVehicle.transform.right;
+        Vector3 outwardDirection = Vector3.ProjectOnPlane(
+            exitPosition - exitingVehicle.transform.position,
+            Vector3.up
+        );
+        if (outwardDirection.sqrMagnitude < 0.001f)
+            outwardDirection = driverDoor != null ? driverDoor.transform.right : exitingVehicle.transform.right;
 
         transform.SetParent(originalParent, true);
         SetPlayerVisible(true);
@@ -1277,6 +1280,8 @@ IEnumerator TryExitThroughDoor()
         }
 
         ejectionRagdoll.Eject(vehicleVelocity, exitPosition, exitRotation, outwardDirection);
+        if (driverDoor != null)
+            driverDoor.CloseDoor();
 
         if (invectorCam != null)
             invectorCam.enabled = invectorCameraWasEnabled;
