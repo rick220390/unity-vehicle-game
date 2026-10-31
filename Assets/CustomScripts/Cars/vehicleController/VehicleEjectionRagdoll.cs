@@ -44,8 +44,8 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     [Range(0f, 1f)] public float landingFacingThreshold = 0.15f;
     [Tooltip("Animator state to return to after the get-up animation completes.")]
     public string recoveryAnimatorState = "Locomotion";
-    [Tooltip("Maximum time to wait for the stand-up state to finish before restoring control.")]
-    [Min(1f)] public float standUpAnimationTimeout = 5f;
+    [Tooltip("Failsafe maximum wait for the stand-up state. Set longer than your longest get-up clip; the front get-up is about 7.15 seconds.")]
+    [Min(1f)] public float standUpAnimationTimeout = 15f;
     [Tooltip("Enable root motion while the stand-up animation plays. Disable this for an in-place animation.")]
     public bool standUpApplyRootMotion = true;
 
@@ -371,16 +371,28 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                 {
                     float elapsed = 0f;
                     float timeout = Mathf.Max(1f, standUpAnimationTimeout);
+                    bool standUpFinished = false;
                     while (elapsed < timeout)
                     {
                         AnimatorStateInfo state = characterAnimator.GetCurrentAnimatorStateInfo(0);
                         if (!characterAnimator.IsInTransition(0) &&
                             state.IsName(selectedStandUpState) &&
                             state.normalizedTime >= 1f)
+                        {
+                            standUpFinished = true;
                             break;
+                        }
 
                         elapsed += Time.deltaTime;
                         yield return null;
+                    }
+
+                    if (!standUpFinished)
+                    {
+                        Debug.LogWarning(
+                            $"VehicleEjectionRagdoll: Get-up state '{selectedStandUpState}' did not finish within {timeout:0.0}s. Increase Stand Up Animation Timeout above the clip length; recovery is continuing as a failsafe.",
+                            this
+                        );
                     }
                 }
                 else if (!string.IsNullOrEmpty(selectedStandUpState))
