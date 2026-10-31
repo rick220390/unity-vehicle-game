@@ -497,6 +497,15 @@ void Update()
         return;
     }
 
+    // The exit coroutine owns the vehicle controls while it is braking to a stop.
+    // Do not let normal player input overwrite its brake command.
+    if (current != null && exitInProgress)
+    {
+        if (messageTimer > 0f)
+            messageTimer -= Time.deltaTime;
+        return;
+    }
+
     if (current == null)
     {
         // Door markers take priority. Vehicles with configured doors are not
