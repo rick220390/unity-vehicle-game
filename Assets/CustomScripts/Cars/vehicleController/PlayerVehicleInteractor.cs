@@ -591,7 +591,7 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
 
     // Keep the physical door movement synchronized with the authored
     // character animation. Start the character animation immediately, then
-    // open the door at 1.20s and begin closing it at 3.26s.
+    // open the door at 1.05s and begin closing it at 3.40s.
     Coroutine entryAnimation = StartCoroutine(PlayVehicleAnimation(
         enterTriggerName,
         enteringStateName,
@@ -599,8 +599,8 @@ IEnumerator EnterThroughDoor(VehicleDoor door)
         4f
     ));
 
-    const float doorOpenAt = 1.20f;
-    const float doorCloseAt = 3.26f;
+    const float doorOpenAt = 1.05f;
+    const float doorCloseAt = 3.40f;
     yield return new WaitForSeconds(doorOpenAt);
     door.OpenDoor();
 
