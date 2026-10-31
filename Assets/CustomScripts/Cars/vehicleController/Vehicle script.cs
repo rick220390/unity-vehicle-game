@@ -62,6 +62,11 @@ public class Vehicle : MonoBehaviour
     [Min(1f)] public float maxReverseSpeedKph = 30f;
     [Min(100f)] public float serviceBrakeTorque = 1800f;
     [Min(100f)] public float handbrakeTorque = 4500f;
+    [Header("Unoccupied vehicle coast-down")]
+    [Tooltip("Brake strength applied after a high-speed driver ejection. The car keeps its inherited velocity, then physically brakes to a stop.")]
+    [Range(0.05f, 1f)] public float unoccupiedCoastBrakeInput = 0.28f;
+    [Tooltip("Speed at which the unoccupied car switches from rolling brake to a holding brake.")]
+    [Min(0.05f)] public float unoccupiedParkSpeed = 0.4f;
     [Tooltip("Engine-braking torque in Nm while coasting, multiplied through the current gear ratio. Set to 0 to disable engine braking.")]
     [Min(0f)] public float engineBrakeTorque = 0f;
     [Tooltip("Rolling resistance while coasting. Keep this low so gravity can accelerate the car down slopes.")]
@@ -245,6 +250,8 @@ public class Vehicle : MonoBehaviour
 
     private Collider[] detectionColliders;
     private Rigidbody rb;
+    private bool unoccupiedCoastDownActive;
+    private bool unoccupiedParked;
 
     /// <summary>
     /// Returns the shortest distance from a world-space point to this vehicle's
@@ -1064,8 +1071,27 @@ public class Vehicle : MonoBehaviour
     {
         HasDriver = false;
         IsBraking = false;
+        unoccupiedCoastDownActive = false;
+        unoccupiedParked = false;
         SetInput(0f, 0f, false, 0f);
         StopWheelTorque();
+    }
+
+    /// <summary>
+    /// Lets a vehicle retain its real momentum after a high-speed ejection,
+    /// then apply its own wheel brakes until it stops. This is deliberately
+    /// separate from Release so ordinary exits and parked vehicles are unchanged.
+    /// </summary>
+    public void BeginUnoccupiedCoastDown()
+    {
+        if (HasDriver)
+            return;
+
+        unoccupiedParked = Speed <= Mathf.Max(0.05f, unoccupiedParkSpeed);
+        unoccupiedCoastDownActive = !unoccupiedParked;
+        appliedThrottle = 0f;
+        appliedBrake = 0f;
+        SetInput(0f, 0f, false, 0f);
     }
 
     public void SetInput(float throttle, float steer, bool handbrake = false, float serviceBrake = 0f)
@@ -1130,7 +1156,17 @@ public class Vehicle : MonoBehaviour
         float dt = Time.fixedDeltaTime;
         float speedKph = Speed * 3.6f;
         float targetThrottle = HasDriver ? Throttle : 0f;
-        float targetBrake = HasDriver ? ServiceBrake * serviceBrakeTorque : 0f;
+        if (unoccupiedCoastDownActive && Speed <= Mathf.Max(0.05f, unoccupiedParkSpeed))
+        {
+            unoccupiedCoastDownActive = false;
+            unoccupiedParked = true;
+        }
+
+        float targetBrake = HasDriver
+            ? ServiceBrake * serviceBrakeTorque
+            : unoccupiedCoastDownActive
+                ? serviceBrakeTorque * Mathf.Clamp01(unoccupiedCoastBrakeInput)
+                : unoccupiedParked ? handbrakeTorque : 0f;
 
         // A negative driving axis (for example S/down-arrow) brakes while the car
         // is travelling forward. Once almost stopped, the same held input may
@@ -1241,6 +1277,8 @@ public class Vehicle : MonoBehaviour
 
             float brake = appliedBrake;
             if (HasDriver && Handbrake && isRearWheel)
+                brake = Mathf.Max(brake, handbrakeTorque);
+            else if (!HasDriver && unoccupiedParked)
                 brake = Mathf.Max(brake, handbrakeTorque);
 
             // Basic ABS approximation: reduce brake torque if a grounded tyre is
@@ -1542,7 +1580,20 @@ public class Vehicle : MonoBehaviour
                              Mathf.Sign(throttle) != Mathf.Sign(forwardSpeed);
         IsBraking = HasDriver && (Handbrake || serviceBraking || opposingInput);
 
-        if (HasDriver && Handbrake)
+        if (!HasDriver && unoccupiedCoastDownActive && Mathf.Abs(forwardSpeed) <= Mathf.Max(0.05f, unoccupiedParkSpeed))
+        {
+            unoccupiedCoastDownActive = false;
+            unoccupiedParked = true;
+        }
+
+        if (!HasDriver && (unoccupiedCoastDownActive || unoccupiedParked))
+        {
+            float deceleration = unoccupiedParked
+                ? Mathf.Max(fallbackBrakeDeceleration, 30f)
+                : fallbackBrakeDeceleration * Mathf.Clamp01(unoccupiedCoastBrakeInput);
+            forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, deceleration * dt);
+        }
+        else if (HasDriver && Handbrake)
         {
             forwardSpeed = Mathf.MoveTowards(forwardSpeed, 0f, fallbackBrakeDeceleration * dt);
         }
