@@ -33,7 +33,15 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     public LayerMask recoveryGroundMask = ~0;
     [Min(0.5f)] public float recoveryGroundCheckHeight = 2f;
     [Min(1f)] public float recoveryGroundCheckDistance = 12f;
+    [Header("Stand-up Recovery")]
+    [Tooltip("Animator state name for the get-up animation. Create this state in the character Animator Controller.")]
+    public string standUpAnimatorState = "StandUp";
+    [Tooltip("Animator state to return to after the get-up animation completes.")]
     public string recoveryAnimatorState = "Locomotion";
+    [Tooltip("Maximum time to wait for the stand-up state to finish before restoring control.")]
+    [Min(1f)] public float standUpAnimationTimeout = 5f;
+    [Tooltip("Enable root motion while the stand-up animation plays. Disable this for an in-place animation.")]
+    public bool standUpApplyRootMotion = true;
 
     private Rigidbody rootBody;
     private Collider[] rootColliders;
@@ -42,6 +50,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     private readonly List<bool> savedColliderEnabled = new List<bool>();
     private bool[] savedRootColliderEnabled;
     private bool savedAnimatorEnabled;
+    private bool savedAnimatorApplyRootMotion;
     private Vector3 pelvisRootLocalPosition;
     private bool savedRootBodyKinematic;
     private bool ragdolled;
@@ -97,6 +106,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 
         savedRootBodyKinematic = rootBody != null && rootBody.isKinematic;
         savedAnimatorEnabled = characterAnimator != null && characterAnimator.enabled;
+        savedAnimatorApplyRootMotion = characterAnimator != null && characterAnimator.applyRootMotion;
     }
 
     /// <summary>Called by PlayerVehicleInteractor after the door has opened.</summary>
@@ -267,20 +277,23 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     IEnumerator RecoverAfterDelay()
     {
         yield return new WaitForSeconds(recoveryDelay);
-        Recover();
+        yield return RecoverRoutine();
     }
 
     public void Recover()
     {
-        if (!ragdolled)
+        if (!ragdolled || recoveryRoutine != null)
             return;
 
-        if (recoveryRoutine != null)
-        {
-            StopCoroutine(recoveryRoutine);
-            recoveryRoutine = null;
-        }
+        recoveryRoutine = StartCoroutine(RecoverRoutine());
+    }
 
+    IEnumerator RecoverRoutine()
+    {
+        if (!ragdolled)
+            yield break;
+
+        recoveryRoutine = null;
         Vector3 recoveryPosition = transform.position;
         Quaternion recoveryRotation = transform.rotation;
         if (pelvis != null)
@@ -314,11 +327,45 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             rootBody.angularVelocity = Vector3.zero;
         }
 
+        // Keep movement/controller behaviours disabled while the character
+        // gets up. Otherwise Invector can apply locomotion over the recovery clip.
         if (characterAnimator != null)
         {
             characterAnimator.enabled = savedAnimatorEnabled;
-            if (characterAnimator.enabled && !string.IsNullOrEmpty(recoveryAnimatorState))
-                characterAnimator.Play(recoveryAnimatorState, 0, 0f);
+            if (characterAnimator.enabled)
+            {
+                characterAnimator.applyRootMotion = standUpApplyRootMotion;
+                bool playedStandUp = false;
+                if (!string.IsNullOrEmpty(standUpAnimatorState))
+                {
+                    characterAnimator.Play(standUpAnimatorState, 0, 0f);
+                    characterAnimator.Update(0f);
+                    playedStandUp = characterAnimator.GetCurrentAnimatorStateInfo(0).IsName(standUpAnimatorState);
+                }
+
+                if (playedStandUp)
+                {
+                    float elapsed = 0f;
+                    float timeout = Mathf.Max(1f, standUpAnimationTimeout);
+                    while (elapsed < timeout)
+                    {
+                        AnimatorStateInfo state = characterAnimator.GetCurrentAnimatorStateInfo(0);
+                        if (!characterAnimator.IsInTransition(0) &&
+                            state.IsName(standUpAnimatorState) &&
+                            state.normalizedTime >= 1f)
+                            break;
+
+                        elapsed += Time.deltaTime;
+                        yield return null;
+                    }
+                }
+
+                // Return to locomotion after the get-up clip, then restore the
+                // Animator's original root-motion setting.
+                if (!string.IsNullOrEmpty(recoveryAnimatorState))
+                    characterAnimator.Play(recoveryAnimatorState, 0, 0f);
+                characterAnimator.applyRootMotion = savedAnimatorApplyRootMotion;
+            }
         }
 
         foreach (BehaviourState state in savedBehaviours)
