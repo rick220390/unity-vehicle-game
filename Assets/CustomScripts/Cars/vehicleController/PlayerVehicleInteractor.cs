@@ -1393,6 +1393,10 @@ IEnumerator TryExitThroughDoor()
             outwardDirection = driverDoor != null ? driverDoor.transform.right : exitingVehicle.transform.right;
 
         transform.SetParent(originalParent, true);
+        // A scaled seat/vehicle hierarchy can change the player's world scale
+        // while parented. Restore the scale captured before entering the vehicle,
+        // just as the normal exit path does, before detaching into ragdoll physics.
+        transform.localScale = originalLocalScale;
         SetPlayerVisible(true);
 
         // Leaving a vehicle through the ejection path must undo the same
