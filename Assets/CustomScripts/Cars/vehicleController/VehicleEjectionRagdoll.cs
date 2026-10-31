@@ -34,8 +34,14 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     [Min(0.5f)] public float recoveryGroundCheckHeight = 2f;
     [Min(1f)] public float recoveryGroundCheckDistance = 12f;
     [Header("Stand-up Recovery")]
-    [Tooltip("Animator state name for the get-up animation. Create this state in the character Animator Controller.")]
-    public string standUpAnimatorState = "StandUp";
+    [Tooltip("Animator state used when the character lands on their back (chest facing upward). Create this state in Base Layer.")]
+    public string standUpFromBackAnimatorState = "StandUpFromBack";
+    [Tooltip("Animator state used when the character lands face-down (chest facing the ground). Create this state in Base Layer.")]
+    public string standUpFromStomachAnimatorState = "StandUpFromStomach";
+    [Tooltip("Optional chest/upper-spine bone used to determine whether the character landed face-up or face-down. If empty, the pelvis is used.")]
+    public Transform chest;
+    [Tooltip("Minimum absolute vertical facing component required to classify the landing as back or stomach. Near-sideways falls use the stronger direction.")]
+    [Range(0f, 1f)] public float landingFacingThreshold = 0.15f;
     [Tooltip("Animator state to return to after the get-up animation completes.")]
     public string recoveryAnimatorState = "Locomotion";
     [Tooltip("Maximum time to wait for the stand-up state to finish before restoring control.")]
@@ -303,6 +309,10 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         if (!ragdolled)
             yield break;
 
+        // Decide which get-up animation matches the final ragdoll pose before
+        // disabling the bone colliders/physics.
+        string selectedStandUpState = GetStandUpStateForLanding();
+
         Vector3 recoveryPosition = transform.position;
         Quaternion recoveryRotation = transform.rotation;
         if (pelvis != null)
@@ -347,11 +357,11 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             {
                 characterAnimator.applyRootMotion = standUpApplyRootMotion;
                 bool playedStandUp = false;
-                if (!string.IsNullOrEmpty(standUpAnimatorState))
+                if (!string.IsNullOrEmpty(selectedStandUpState))
                 {
-                    characterAnimator.Play(standUpAnimatorState, 0, 0f);
+                    characterAnimator.Play(selectedStandUpState, 0, 0f);
                     characterAnimator.Update(0f);
-                    playedStandUp = characterAnimator.GetCurrentAnimatorStateInfo(0).IsName(standUpAnimatorState);
+                    playedStandUp = characterAnimator.GetCurrentAnimatorStateInfo(0).IsName(selectedStandUpState);
                 }
 
                 if (playedStandUp)
@@ -362,7 +372,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                     {
                         AnimatorStateInfo state = characterAnimator.GetCurrentAnimatorStateInfo(0);
                         if (!characterAnimator.IsInTransition(0) &&
-                            state.IsName(standUpAnimatorState) &&
+                            state.IsName(selectedStandUpState) &&
                             state.normalizedTime >= 1f)
                             break;
 
@@ -370,10 +380,10 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                         yield return null;
                     }
                 }
-                else if (!string.IsNullOrEmpty(standUpAnimatorState))
+                else if (!string.IsNullOrEmpty(selectedStandUpState))
                 {
                     Debug.LogWarning(
-                        $"VehicleEjectionRagdoll: Animator state '{standUpAnimatorState}' was not found on layer 0. Check the Stand Up state name in the Inspector.",
+                        $"VehicleEjectionRagdoll: Animator state '{selectedStandUpState}' was not found on layer 0. Check the get-up state names in the Inspector.",
                         this
                     );
                 }
@@ -403,6 +413,30 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         recoveryRoutine = null;
     }
 
+
+    string GetStandUpStateForLanding()
+    {
+        Transform facingBone = chest != null ? chest : pelvis;
+        if (facingBone == null)
+            return standUpFromBackAnimatorState;
+
+        // A humanoid chest's forward direction points out through the front of
+        // the body: positive Y means the chest faces the sky (on the back),
+        // negative Y means it faces the ground (on the stomach).
+        float facingUp = Vector3.Dot(facingBone.forward.normalized, Vector3.up);
+        float threshold = Mathf.Clamp01(landingFacingThreshold);
+
+        if (facingUp >= threshold)
+            return standUpFromBackAnimatorState;
+        if (facingUp <= -threshold)
+            return standUpFromStomachAnimatorState;
+
+        // If the character landed on their side, choose the closest of the two
+        // orientations rather than leaving the Animator in an undefined state.
+        return facingUp >= 0f
+            ? standUpFromBackAnimatorState
+            : standUpFromStomachAnimatorState;
+    }
 
     Vector3 GetGroundedRecoveryPosition(Vector3 candidatePosition)
     {
