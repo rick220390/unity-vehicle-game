@@ -29,6 +29,10 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     [Tooltip("Small random variation added to the tumble for less repeated-looking falls.")]
     [Min(0f)] public float tumbleVariation = 1.5f;
     [Min(0f)] public float recoveryDelay = 6f;
+    [Tooltip("Layers that can be used as the ground when the character recovers.")]
+    public LayerMask recoveryGroundMask = ~0;
+    [Min(0.5f)] public float recoveryGroundCheckHeight = 2f;
+    [Min(1f)] public float recoveryGroundCheckDistance = 12f;
     public string recoveryAnimatorState = "Locomotion";
 
     private Rigidbody rootBody;
@@ -287,19 +291,28 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             recoveryPosition = pelvis.position - recoveryRotation * pelvisRootLocalPosition;
         }
 
+        // Stop the bone physics first, then restore the root collider while the
+        // root Rigidbody is still kinematic. The pelvis can finish its tumble
+        // below or above the floor, so its raw position is not a safe spawn point.
         SetRagdollActive(false);
         transform.SetPositionAndRotation(recoveryPosition, recoveryRotation);
-
-        if (rootBody != null)
-        {
-            rootBody.isKinematic = savedRootBodyKinematic;
-            SetBodyVelocity(rootBody, Vector3.zero);
-            rootBody.angularVelocity = Vector3.zero;
-        }
 
         for (int i = 0; i < rootColliders.Length; i++)
             if (rootColliders[i] != null)
                 rootColliders[i].enabled = savedRootColliderEnabled[i];
+
+        Physics.SyncTransforms();
+        recoveryPosition = GetGroundedRecoveryPosition(recoveryPosition);
+        transform.position = recoveryPosition;
+        Physics.SyncTransforms();
+
+        if (rootBody != null)
+        {
+            rootBody.position = recoveryPosition;
+            rootBody.isKinematic = savedRootBodyKinematic;
+            SetBodyVelocity(rootBody, Vector3.zero);
+            rootBody.angularVelocity = Vector3.zero;
+        }
 
         if (characterAnimator != null)
         {
@@ -314,6 +327,52 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 
         savedBehaviours.Clear();
         ragdolled = false;
+    }
+
+
+    Vector3 GetGroundedRecoveryPosition(Vector3 candidatePosition)
+    {
+        Vector3 rayOrigin = candidatePosition + Vector3.up * Mathf.Max(0.5f, recoveryGroundCheckHeight);
+        RaycastHit[] hits = Physics.RaycastAll(
+            rayOrigin,
+            Vector3.down,
+            Mathf.Max(1f, recoveryGroundCheckDistance),
+            recoveryGroundMask,
+            QueryTriggerInteraction.Ignore
+        );
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (RaycastHit hit in hits)
+        {
+            Collider hitCollider = hit.collider;
+            if (hitCollider == null)
+                continue;
+
+            // Never treat the player's own rig or the vehicle they exited as ground.
+            if (hitCollider.transform == transform || hitCollider.transform.IsChildOf(transform))
+                continue;
+            if (hitCollider.GetComponentInParent<Vehicle>() != null)
+                continue;
+
+            float lowestRootColliderY = float.PositiveInfinity;
+            foreach (Collider rootCollider in rootColliders)
+            {
+                if (rootCollider != null && rootCollider.enabled)
+                    lowestRootColliderY = Mathf.Min(lowestRootColliderY, rootCollider.bounds.min.y);
+            }
+
+            if (float.IsPositiveInfinity(lowestRootColliderY))
+                return candidatePosition;
+
+            float rootToColliderBottom = transform.position.y - lowestRootColliderY;
+            candidatePosition.y = hit.point.y + rootToColliderBottom + 0.03f;
+            return candidatePosition;
+        }
+
+        // If no ground is found (for example, while recovering over a pit),
+        // preserve the physics-derived position rather than teleporting arbitrarily.
+        return candidatePosition;
     }
 
     void SetRagdollActive(bool active)
