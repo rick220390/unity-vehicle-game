@@ -153,6 +153,7 @@ private readonly List<BehaviourEnabledState> disabledBehaviourStates =
 private bool invectorCameraWasEnabled;
 private bool ragdollCameraActive;
 private bool ragdollCameraStateCaptured;
+private Coroutine ragdollCameraRestoreRoutine;
 private bool playerRigidbodyWasKinematic;
 private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
@@ -612,13 +613,15 @@ void LateUpdate()
     }
 
     // VehicleEjectionRagdoll has finished recovery and restored the animated
-    // character. Give camera ownership back to Invector at that point.
+    // character. Rebind Invector's target before handing camera ownership back:
+    // after an ejection the player root has been detached and repositioned, while
+    // the camera may still hold its pre-ejection follow state.
     if (ragdollCameraActive)
     {
         ragdollCameraActive = false;
-        if (invectorCam != null && ragdollCameraStateCaptured)
-            invectorCam.enabled = invectorCameraWasEnabled;
-        ragdollCameraStateCaptured = false;
+        if (ragdollCameraRestoreRoutine != null)
+            StopCoroutine(ragdollCameraRestoreRoutine);
+        ragdollCameraRestoreRoutine = StartCoroutine(RestoreCameraAfterRagdoll());
     }
 
     if (current == null)
@@ -796,6 +799,41 @@ void LateUpdate()
             rotationBlend
         );
     }
+}
+
+IEnumerator RestoreCameraAfterRagdoll()
+{
+    // Let the recovery frame finish restoring the root transform, colliders,
+    // Animator and Invector movement components before reinitialising the camera.
+    yield return null;
+
+    if (invectorCam != null && ragdollCameraStateCaptured && invectorCameraWasEnabled)
+    {
+        invectorCam.enabled = true;
+
+        // Invector exposes SetMainTarget on its third-person camera. SendMessage
+        // keeps this script compatible with Invector versions where the method
+        // is present without introducing a hard dependency on that API.
+        invectorCam.SendMessage("SetMainTarget", transform, SendMessageOptions.DontRequireReceiver);
+
+        // Put the camera at a valid follow pose immediately. This avoids leaving
+        // it parked at the last ragdoll-camera position while Invector resumes its
+        // own LateUpdate and rebuilds its normal orbit.
+        if (cam != null)
+        {
+            Vector3 target = transform.position + Vector3.up * camLookHeight;
+            Quaternion orbit = Quaternion.Euler(cameraPitch, transform.eulerAngles.y + cameraYaw, 0f);
+            float distance = Mathf.Max(1f, camDistance * 0.85f);
+            cam.transform.position = target - orbit * Vector3.forward * distance
+                + Vector3.up * (camHeight - camLookHeight);
+            Vector3 direction = target - cam.transform.position;
+            if (direction.sqrMagnitude > 0.001f)
+                cam.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
+        }
+    }
+
+    ragdollCameraStateCaptured = false;
+    ragdollCameraRestoreRoutine = null;
 }
 
 void UpdateRagdollCamera(VehicleEjectionRagdoll ragdoll)
