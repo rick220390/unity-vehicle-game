@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Door interaction point and hinged door animation.
+/// Door interaction point and animation.
 /// Attach this component to the hinge pivot (the empty GameObject placed at the
 /// physical hinge). Keep the visible door mesh as a child of that pivot.
 /// </summary>
@@ -17,6 +17,12 @@ public class VehicleDoor : MonoBehaviour
         RearLeftPassenger,
         RearRightPassenger,
         Other
+    }
+
+    public enum DoorMotionType
+    {
+        Hinged,
+        Scissor
     }
 
     public static readonly List<VehicleDoor> All = new List<VehicleDoor>();
@@ -46,32 +52,45 @@ public class VehicleDoor : MonoBehaviour
     [Header("Door Role")]
     public DoorRole role = DoorRole.Driver;
 
-    [Header("Hinge Animation")]
-    [Tooltip("Local axis to rotate around. Most car doors use the local Y axis.")]
+    [Header("Door Motion")]
+    public DoorMotionType motionType = DoorMotionType.Hinged;
+
+    [Tooltip("Local axis to rotate around. For scissor doors, use the axis that lifts the door upwards.")]
     public Vector3 localOpenAxis = Vector3.up;
 
     [Tooltip("Degrees to rotate from the closed position. Use a negative value if the door swings the wrong way.")]
     public float openAngle = 65f;
 
+    [Tooltip("For scissor doors, the small initial movement away from the body before lifting. Set the direction and distance in this hinge's parent-local space.")]
+    public Vector3 scissorPopOutLocalOffset = new Vector3(0.08f, 0f, 0f);
+
     [Min(0.05f)]
+    [Tooltip("Duration of the initial outward movement on a scissor door.")]
+    public float scissorPopOutDuration = 0.18f;
+
+    [Min(0.05f)]
+    [Tooltip("Duration of the upward rotation on a scissor door.")]
+    public float scissorLiftDuration = 0.65f;
+
+    [Min(0.05f)]
+    [Tooltip("Duration of a conventional hinged door rotation.")]
     public float animationDuration = 0.45f;
 
     [Tooltip("Optional keyboard test while playing. Press K by default to open/close this door.")]
     public bool enableKeyboardTest = true;
     public KeyCode testToggleKey = KeyCode.K;
 
+    private Vector3 closedLocalPosition;
     private Quaternion closedLocalRotation;
     private Quaternion openLocalRotation;
     private Coroutine animationRoutine;
     private bool isOpen;
 
-    /// <summary>The configured interaction point, or this hinge transform.</summary>
     public Transform InteractionTransform =>
         interactionPoint != null ? interactionPoint : transform;
 
     public bool IsOpen => isOpen;
 
-    /// <summary>True when this is an active driver entry point on an available vehicle.</summary>
     public bool CanEnterAsDriver =>
         isActiveAndEnabled &&
         vehicle != null &&
@@ -81,13 +100,13 @@ public class VehicleDoor : MonoBehaviour
 
     private void Awake()
     {
-        CacheHingeRotations();
+        CacheClosedPose();
     }
 
     private void Reset()
     {
         FindVehicleIfMissing();
-        CacheHingeRotations();
+        CacheClosedPose();
     }
 
     private void OnValidate()
@@ -95,13 +114,16 @@ public class VehicleDoor : MonoBehaviour
         FindVehicleIfMissing();
         if (localOpenAxis.sqrMagnitude < 0.001f)
             localOpenAxis = Vector3.up;
+
         animationDuration = Mathf.Max(0.05f, animationDuration);
+        scissorPopOutDuration = Mathf.Max(0.05f, scissorPopOutDuration);
+        scissorLiftDuration = Mathf.Max(0.05f, scissorLiftDuration);
     }
 
     private void OnEnable()
     {
         FindVehicleIfMissing();
-        CacheHingeRotations();
+        CacheClosedPose();
 
         if (!All.Contains(this))
             All.Add(this);
@@ -124,13 +146,20 @@ public class VehicleDoor : MonoBehaviour
             ToggleDoor();
     }
 
-    private void CacheHingeRotations()
+    private void CacheClosedPose()
     {
+        closedLocalPosition = transform.localPosition;
         closedLocalRotation = transform.localRotation;
-        openLocalRotation = closedLocalRotation *
-            Quaternion.AngleAxis(openAngle, localOpenAxis.sqrMagnitude > 0.001f
-                ? localOpenAxis.normalized
-                : Vector3.up);
+        RecalculateOpenRotation();
+    }
+
+    private void RecalculateOpenRotation()
+    {
+        Vector3 axis = localOpenAxis.sqrMagnitude > 0.001f
+            ? localOpenAxis.normalized
+            : Vector3.up;
+
+        openLocalRotation = closedLocalRotation * Quaternion.AngleAxis(openAngle, axis);
     }
 
     public void OpenDoor()
@@ -153,37 +182,77 @@ public class VehicleDoor : MonoBehaviour
         if (animationRoutine != null)
             StopCoroutine(animationRoutine);
 
-        // Recalculate in case the angle or axis was adjusted in the Inspector.
-        openLocalRotation = closedLocalRotation *
-            Quaternion.AngleAxis(openAngle, localOpenAxis.sqrMagnitude > 0.001f
-                ? localOpenAxis.normalized
-                : Vector3.up);
-
-        animationRoutine = StartCoroutine(AnimateRotation(
-            open ? openLocalRotation : closedLocalRotation,
-            open
-        ));
+        RecalculateOpenRotation();
+        animationRoutine = StartCoroutine(AnimateDoorSequence(open));
     }
 
-    private IEnumerator AnimateRotation(Quaternion targetRotation, bool opening)
+    private IEnumerator AnimateDoorSequence(bool opening)
     {
-        Quaternion startRotation = transform.localRotation;
+        Vector3 poppedOutPosition = closedLocalPosition + scissorPopOutLocalOffset;
+
+        if (motionType == DoorMotionType.Scissor)
+        {
+            if (opening)
+            {
+                // Stage 1: move the door slightly away from the body.
+                yield return AnimatePosition(poppedOutPosition, scissorPopOutDuration);
+
+                // Stage 2: lift the door around its hinge.
+                yield return AnimateRotation(openLocalRotation, scissorLiftDuration);
+            }
+            else
+            {
+                // Close in reverse order: lower first, then tuck back against the body.
+                yield return AnimateRotation(closedLocalRotation, scissorLiftDuration);
+                yield return AnimatePosition(closedLocalPosition, scissorPopOutDuration);
+            }
+        }
+        else
+        {
+            yield return AnimateRotation(
+                opening ? openLocalRotation : closedLocalRotation,
+                animationDuration
+            );
+        }
+
+        isOpen = opening;
+        animationRoutine = null;
+    }
+
+    private IEnumerator AnimatePosition(Vector3 targetPosition, float duration)
+    {
+        Vector3 startPosition = transform.localPosition;
         float elapsed = 0f;
-        float duration = Mathf.Max(0.05f, animationDuration);
+        duration = Mathf.Max(0.05f, duration);
 
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / duration);
-            // Smooth ease-in/ease-out rather than a mechanical linear swing.
+            float smoothT = t * t * (3f - 2f * t);
+            transform.localPosition = Vector3.Lerp(startPosition, targetPosition, smoothT);
+            yield return null;
+        }
+
+        transform.localPosition = targetPosition;
+    }
+
+    private IEnumerator AnimateRotation(Quaternion targetRotation, float duration)
+    {
+        Quaternion startRotation = transform.localRotation;
+        float elapsed = 0f;
+        duration = Mathf.Max(0.05f, duration);
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
             float smoothT = t * t * (3f - 2f * t);
             transform.localRotation = Quaternion.Slerp(startRotation, targetRotation, smoothT);
             yield return null;
         }
 
         transform.localRotation = targetRotation;
-        isOpen = opening;
-        animationRoutine = null;
     }
 
     private void FindVehicleIfMissing()
