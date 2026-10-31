@@ -421,24 +421,34 @@ public class VehicleEjectionRagdoll : MonoBehaviour
                         0f
                     );
 
-                    float blendElapsed = 0f;
-                    int expectedShortNameHash = Animator.StringToHash(recoveryAnimatorState);
-                    while (blendElapsed < 2f)
-                    {
-                        AnimatorStateInfo locomotionState = characterAnimator.GetCurrentAnimatorStateInfo(0);
-                        if (!characterAnimator.IsInTransition(0) &&
-                            locomotionState.shortNameHash == expectedShortNameHash)
-                            break;
+                    // Evaluate the crossfade immediately, then release the Invector
+                    // controller as soon as the transition has started. Waiting for
+                    // the whole blend (or timing out while checking a nested state)
+                    // leaves the character frozen with movement behaviours disabled.
+                    characterAnimator.Update(0f);
 
-                        blendElapsed += Time.deltaTime;
-                        yield return null;
-                    }
+                    int expectedShortNameHash = Animator.StringToHash(
+                        recoveryAnimatorState.Contains(".")
+                            ? recoveryAnimatorState.Substring(recoveryAnimatorState.LastIndexOf('.') + 1)
+                            : recoveryAnimatorState
+                    );
 
-                    AnimatorStateInfo finalState = characterAnimator.GetCurrentAnimatorStateInfo(0);
-                    if (finalState.shortNameHash != expectedShortNameHash)
+                    // Give the Animator one frame to begin the requested transition.
+                    // Do not wait for the blend to finish: the controller needs to be
+                    // active during the blend so its locomotion parameters keep updating.
+                    yield return null;
+
+                    AnimatorStateInfo currentState = characterAnimator.GetCurrentAnimatorStateInfo(0);
+                    AnimatorStateInfo nextState = characterAnimator.GetNextAnimatorStateInfo(0);
+                    bool recoveryTransitionStarted =
+                        characterAnimator.IsInTransition(0) &&
+                        nextState.shortNameHash == expectedShortNameHash;
+                    bool recoveryStateActive = currentState.shortNameHash == expectedShortNameHash;
+
+                    if (!recoveryTransitionStarted && !recoveryStateActive)
                     {
                         Debug.LogWarning(
-                            $"VehicleEjectionRagdoll: Animator did not enter recovery state '{recoveryAnimatorState}'. Current state hash: {finalState.shortNameHash}. Check the Animator layer and state name.",
+                            $"VehicleEjectionRagdoll: Could not confirm recovery state '{recoveryAnimatorState}'. Current state hash: {currentState.shortNameHash}, next state hash: {nextState.shortNameHash}. If it is nested, enter its full path in Recovery Animator State (for example, 'Locomotion.Free Locomotion').",
                             this
                         );
                     }
