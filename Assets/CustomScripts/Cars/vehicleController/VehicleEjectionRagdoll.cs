@@ -12,9 +12,9 @@ public class VehicleEjectionRagdoll : MonoBehaviour
 {
     [Header("Ragdoll Setup")]
     [Tooltip("All bone rigidbodies in the ragdoll hierarchy, including the pelvis.")]
-    public Rigidbody[] ragdollBodies;
+    public Rigidbody[] ragdollBodies = new Rigidbody[0];
     [Tooltip("All ragdoll bone colliders. Do not include the player root capsule.")]
-    public Collider[] ragdollColliders;
+    public Collider[] ragdollColliders = new Collider[0];
     [Tooltip("Pelvis/hips transform used to place the player root when recovering")]
     public Transform pelvis;
     [Tooltip("Animator on the character. If empty, searches this hierarchy.")]
@@ -38,6 +38,7 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     private readonly List<bool> savedColliderEnabled = new List<bool>();
     private bool[] savedRootColliderEnabled;
     private bool savedAnimatorEnabled;
+    private Vector3 pelvisRootLocalPosition;
     private bool savedRootBodyKinematic;
     private bool ragdolled;
     private Coroutine recoveryRoutine;
@@ -59,6 +60,11 @@ public class VehicleEjectionRagdoll : MonoBehaviour
         rootColliders = GetComponents<Collider>();
         if (characterAnimator == null)
             characterAnimator = GetComponentInChildren<Animator>(true);
+
+        if (ragdollBodies == null) ragdollBodies = new Rigidbody[0];
+        if (ragdollColliders == null) ragdollColliders = new Collider[0];
+        if (pelvis != null)
+            pelvisRootLocalPosition = transform.InverseTransformPoint(pelvis.position);
 
         CacheOriginalStates();
         SetRagdollActive(false);
@@ -203,13 +209,14 @@ public class VehicleEjectionRagdoll : MonoBehaviour
             recoveryRoutine = null;
         }
 
-        Vector3 recoveryPosition = pelvis != null ? pelvis.position : transform.position;
+        Vector3 recoveryPosition = transform.position;
         Quaternion recoveryRotation = transform.rotation;
         if (pelvis != null)
         {
             Vector3 forward = Vector3.ProjectOnPlane(pelvis.forward, Vector3.up);
             if (forward.sqrMagnitude > 0.001f)
                 recoveryRotation = Quaternion.LookRotation(forward, Vector3.up);
+            recoveryPosition = pelvis.position - recoveryRotation * pelvisRootLocalPosition;
         }
 
         SetRagdollActive(false);
