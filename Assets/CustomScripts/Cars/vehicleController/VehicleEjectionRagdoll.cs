@@ -43,6 +43,9 @@ public class VehicleEjectionRagdoll : MonoBehaviour
     private bool ragdolled;
     private Coroutine recoveryRoutine;
 
+    public bool IsConfigured => ragdollBodies != null && ragdollBodies.Length > 0 &&
+        ragdollColliders != null && ragdollColliders.Length > 0;
+
     private struct BehaviourState
     {
         public MonoBehaviour behaviour;
