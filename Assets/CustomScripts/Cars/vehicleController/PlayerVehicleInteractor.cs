@@ -28,6 +28,8 @@ public Animator vehicleAnimator;
 public string vehicleLayerName = "Vehicle";
 public string enterTriggerName = "EnterVehicle";
 public string exitTriggerName = "ExitVehicle";
+[Tooltip("Idle state on the Vehicle Animator layer. The entry sequence resets to this state before firing EnterVehicle, allowing repeated enter/exit cycles.")]
+public string vehicleIdleStateName = "VehicleIdle";
 public string enteringStateName = "EnteringCar";
 public string exitingStateName = "ExitingCar";
 [Min(0.1f)] public float entryAnimationFallback = 2.5f;
@@ -1083,6 +1085,18 @@ IEnumerator PlayVehicleAnimation(string triggerName, string stateName, float fal
     vehicleAnimator.SetLayerWeight(vehicleAnimatorLayer, 1f);
     vehicleAnimator.ResetTrigger(exitTriggerName);
     vehicleAnimator.ResetTrigger(enterTriggerName);
+
+    // The exit clip can leave the override layer parked in ExitingCar. On a
+    // second entry, an EnterVehicle transition authored only from VehicleIdle
+    // would never fire, leaving the character frozen in the previous pose.
+    // Explicitly return the vehicle layer to its idle state before every entry.
+    if (triggerName == enterTriggerName &&
+        !string.IsNullOrEmpty(vehicleIdleStateName))
+    {
+        vehicleAnimator.Play(vehicleIdleStateName, vehicleAnimatorLayer, 0f);
+        vehicleAnimator.Update(0f);
+    }
+
     vehicleAnimator.SetTrigger(triggerName);
 
     // Entry/exit handovers use the measured clip durations rather than waiting
