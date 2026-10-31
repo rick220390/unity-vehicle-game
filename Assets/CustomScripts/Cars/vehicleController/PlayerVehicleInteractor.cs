@@ -152,6 +152,7 @@ private readonly List<BehaviourEnabledState> disabledBehaviourStates =
     new List<BehaviourEnabledState>();
 private bool invectorCameraWasEnabled;
 private bool ragdollCameraActive;
+private bool ragdollCameraStateCaptured;
 private bool playerRigidbodyWasKinematic;
 private int vehicleAnimatorLayer = -1;
 private bool animatorRootMotionWasEnabled;
@@ -594,6 +595,15 @@ void LateUpdate()
         // Invector normally follows the player root. During a ragdoll the root
         // stays at the ejection point while the Mixamo bones move independently,
         // so take camera ownership and follow the pelvis instead.
+        if (!ragdollCameraActive)
+        {
+            // Capture the camera's live state at the moment any ragdoll starts.
+            // Impact ragdolls can happen while walking, without EnterReserved
+            // ever having run, so the cached vehicle-entry value is not reliable.
+            invectorCameraWasEnabled = invectorCam != null && invectorCam.enabled;
+            ragdollCameraStateCaptured = true;
+        }
+
         if (invectorCam != null && invectorCam.enabled)
             invectorCam.enabled = false;
         ragdollCameraActive = true;
@@ -606,8 +616,9 @@ void LateUpdate()
     if (ragdollCameraActive)
     {
         ragdollCameraActive = false;
-        if (invectorCam != null)
+        if (invectorCam != null && ragdollCameraStateCaptured)
             invectorCam.enabled = invectorCameraWasEnabled;
+        ragdollCameraStateCaptured = false;
     }
 
     if (current == null)
