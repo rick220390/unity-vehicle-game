@@ -287,23 +287,29 @@ void ApplyFootIk(
     vehicleAnimator.SetIKPositionWeight(foot, weight);
     vehicleAnimator.SetIKRotationWeight(foot, weight);
 
-    if (footTarget != null)
+    if (footTarget != null && current != null)
     {
+        // Smooth in vehicle-local space, not world space. The car and its pedal
+        // targets move together; smoothing world positions makes the feet lag
+        // behind the cabin as vehicle speed increases.
+        Vector3 targetLocalPosition = current.transform.InverseTransformPoint(footTarget.position);
+        Quaternion targetLocalRotation = Quaternion.Inverse(current.transform.rotation) * footTarget.rotation;
+
         if (!poseInitialized)
         {
-            currentPosition = footTarget.position;
-            currentRotation = footTarget.rotation;
+            currentPosition = targetLocalPosition;
+            currentRotation = targetLocalRotation;
             poseInitialized = true;
         }
         else
         {
             float blend = 1f - Mathf.Exp(-Mathf.Max(0.1f, footIkResponse) * Time.deltaTime);
-            currentPosition = Vector3.Lerp(currentPosition, footTarget.position, blend);
-            currentRotation = Quaternion.Slerp(currentRotation, footTarget.rotation, blend);
+            currentPosition = Vector3.Lerp(currentPosition, targetLocalPosition, blend);
+            currentRotation = Quaternion.Slerp(currentRotation, targetLocalRotation, blend);
         }
 
-        vehicleAnimator.SetIKPosition(foot, currentPosition);
-        vehicleAnimator.SetIKRotation(foot, currentRotation);
+        vehicleAnimator.SetIKPosition(foot, current.transform.TransformPoint(currentPosition));
+        vehicleAnimator.SetIKRotation(foot, current.transform.rotation * currentRotation);
     }
     else
     {
