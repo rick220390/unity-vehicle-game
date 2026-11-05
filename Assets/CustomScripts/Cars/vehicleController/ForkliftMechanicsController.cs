@@ -1,4 +1,5 @@
 using UnityEngine;
+using WSMGameStudio.HeavyMachinery;
 
 /// <summary>
 /// Connects the WSM Heavy Machinery mechanical-part components to this project's
