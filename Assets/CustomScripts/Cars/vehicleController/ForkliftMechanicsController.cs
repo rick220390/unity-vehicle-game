@@ -109,7 +109,6 @@ public sealed class ForkliftMechanicsController : MonoBehaviour
             widthInput = ReadAxis(forksOpenKey, forksCloseKey);
             tiltInput = ReadAxis(mastTiltForwardKey, mastTiltBackKey);
         }
-        }
 
         UpdateLift(liftInput);
         UpdateSideShift(sideShiftInput);
