@@ -89,7 +89,15 @@ public sealed class ForkliftMechanicsController : MonoBehaviour
     {
         if (!CanOperate())
         {
-            SetHydraulicAudio(IsAnyPartMoving());
+            // Clear each part's moving flag without changing its current position.
+            if (loadBackrest != null) loadBackrest.MovementInput = liftValue;
+            if (secondaryMast != null) secondaryMast.MovementInput = secondaryMastValue;
+            if (loadBackrestCylinders != null) loadBackrestCylinders.MovementInput = sideShiftValue;
+            if (forkLeft != null) forkLeft.MovementInput = widthValue;
+            if (forkRight != null) forkRight.MovementInput = widthValue;
+            if (mainMast != null) mainMast.MovementInput = tiltValue;
+            SetHydraulicAudio(false);
+            UpdateControlLeversToNeutral();
             return;
         }
 
@@ -100,9 +108,6 @@ public sealed class ForkliftMechanicsController : MonoBehaviour
             widthInput = ReadAxis(forksOpenKey, forksCloseKey);
             tiltInput = ReadAxis(mastTiltForwardKey, mastTiltBackKey);
         }
-        else
-        {
-            liftInput = sideShiftInput = widthInput = tiltInput = 0f;
         }
 
         UpdateLift(liftInput);
@@ -127,9 +132,6 @@ public sealed class ForkliftMechanicsController : MonoBehaviour
 
     private bool CanOperate()
     {
-        if (!enableKeyboardInput && !enabled)
-            return false;
-
         if (vehicle == null || !vehicle.HasDriver)
             return false;
 
@@ -199,6 +201,19 @@ public sealed class ForkliftMechanicsController : MonoBehaviour
 
         tiltValue = Mathf.Clamp01(tiltValue + input * Time.deltaTime * mastTiltSpeed);
         mainMast.MovementInput = tiltValue;
+    }
+
+    private void UpdateControlLeversToNeutral()
+    {
+        float response = Mathf.Max(1f, leverResponse) * Time.deltaTime;
+        liftLeverAngle = Mathf.MoveTowards(liftLeverAngle, 0f, response);
+        sideShiftLeverAngle = Mathf.MoveTowards(sideShiftLeverAngle, 0f, response);
+        widthLeverAngle = Mathf.MoveTowards(widthLeverAngle, 0f, response);
+        tiltLeverAngle = Mathf.MoveTowards(tiltLeverAngle, 0f, response);
+        SetLeverRotation(liftLever, liftLeverAngle);
+        SetLeverRotation(sideShiftLever, sideShiftLeverAngle);
+        SetLeverRotation(forkWidthLever, widthLeverAngle);
+        SetLeverRotation(mastTiltLever, tiltLeverAngle);
     }
 
     private void UpdateControlLevers()
