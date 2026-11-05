@@ -9,6 +9,8 @@ namespace WSMGameStudio.Vehicles
     public class WSMVehiclePlayerInput : MonoBehaviour
     {
         public bool enablePlayerInput = true;
+        [Tooltip("Enable this for vehicles whose steering direction is reversed by their wheel/collider setup.")]
+        public bool invertSteeringInput = false;
         public InputSystemEnum activeInputSystem;
         //Legacy Input System
         public WSMVehicleInputSettings inputSettings;
@@ -79,7 +81,8 @@ namespace WSMGameStudio.Vehicles
                 return;
 
             _vehicleController.AccelerationInput = _inputMapping.Vehicle.Acceleration.ReadValue<float>();
-            _vehicleController.SteeringInput = _inputMapping.Vehicle.Steering.ReadValue<float>();
+            float steeringInput = _inputMapping.Vehicle.Steering.ReadValue<float>();
+            _vehicleController.SteeringInput = invertSteeringInput ? -steeringInput : steeringInput;
             _vehicleController.BrakesInput = _inputMapping.Vehicle.Brakes.ReadValue<float>();
             _vehicleController.HandBrakeInput = _inputMapping.Vehicle.Handbrake.ReadValue<float>();
             _vehicleController.ClutchInput = _inputMapping.Vehicle.Clutch.ReadValue<float>();
@@ -157,7 +160,7 @@ namespace WSMGameStudio.Vehicles
             _steering = 0f;
             _steering = Input.GetKey(inputSettings.turnRight) ? _steering + 1 : _steering;
             _steering = Input.GetKey(inputSettings.turnLeft) ? _steering - 1 : _steering;
-            _vehicleController.SteeringInput = _steering;
+            _vehicleController.SteeringInput = invertSteeringInput ? -_steering : _steering;
 
             _vehicleController.BrakesInput = Input.GetKey(inputSettings.brakes) ? 1f : 0f;
             _vehicleController.HandBrakeInput = Input.GetKey(inputSettings.handbrake) ? 1f : 0f;
