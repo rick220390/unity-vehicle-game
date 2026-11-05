@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 1baddc39463fb384d919a9b4ac6b60b9
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 162826
+  packageName: Forklift Controller - HEAVY MACHINERY
+  packageVersion: 2.0.2
+  assetPath: Assets/WSM Game Studio/Heavy Machinery/Shared/Scripts/Runtime/MechanicalPartSync.cs
+  uploadId: 983272

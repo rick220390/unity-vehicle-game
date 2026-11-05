@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: 420bea21d0ec90444a2e2ba48f39839e
+timeCreated: 1581335149
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 162826
+  packageName: Forklift Controller - HEAVY MACHINERY
+  packageVersion: 2.0.2
+  assetPath: Assets/WSM Game Studio/Heavy Machinery/Forklift Controller/Scripts/Runtime/ForkliftDemo.cs
+  uploadId: 983272
