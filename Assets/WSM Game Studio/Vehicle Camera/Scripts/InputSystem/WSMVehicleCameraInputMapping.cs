@@ -116,7 +116,7 @@ namespace WSMGameStudio.Vehicles
                     ""type"": ""Value"",
                     ""id"": ""ab5b4235-cca8-4a25-bed8-0b618fda5887"",
                     ""expectedControlType"": ""Vector2"",
-                    ""processors"": ""NormalizeVector2,StickDeadzone"",
+                    ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": true
                 },
@@ -531,6 +531,17 @@ namespace WSMGameStudio.Vehicles
                     ""processors"": """",
                     ""groups"": ""Joystick"",
                     ""action"": ""Toggle"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": ""Mouse Delta"",
+                    ""id"": ""c1e0c38d-0c78-4f8a-a5e7-1f5dbf8b4c31"",
+                    ""path"": ""<Mouse>/delta"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""Keyboard"",
+                    ""action"": ""Look"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
