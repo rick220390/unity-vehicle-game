@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 9f8a5c6d59591c74da506cff05cfbc8d
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - inputSettings: {fileID: 11400000, guid: 9248918f6708daa43831fb5b276bbc79, type: 2}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 162826
+  packageName: Forklift Controller - HEAVY MACHINERY
+  packageVersion: 2.0.2
+  assetPath: Assets/WSM Game Studio/Vehicle Camera/Scripts/Runtime/WSMVehicleCameraPlayerInput.cs
+  uploadId: 983272
