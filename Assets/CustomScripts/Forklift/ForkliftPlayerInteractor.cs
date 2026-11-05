@@ -235,7 +235,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         foreach (Behaviour behaviour in player.GetComponentsInChildren<Behaviour>(true))
         {
-            if (behaviour == null || behaviour == this) continue;
+            if (behaviour == null) continue;
             string typeName = behaviour.GetType().Name;
             if (typeName == "vThirdPersonInput" ||
                 typeName == "vThirdPersonController" ||
