@@ -64,7 +64,10 @@ public class WarehouseLorryArrival : MonoBehaviour
     // turn gravity back on after the lorry has been spawned.
     private void LateUpdate()
     {
-        EnforceLorryRigidbodies();
+        // Lock the load only while the lorry is moving. Once parked, cargo
+        // rigidbodies are released for the forklift/unloading interaction.
+        if (!hasArrived)
+            EnforceLorryRigidbodies();
     }
 
     private void EnforceLorryRigidbodies()
@@ -223,9 +226,32 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         hasArrived = true;
         arrivalRoutine = null;
+        ReleaseCargoForUnloading();
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Lorry has reached the loading bay and is ready for unloading.", this);
+    }
+
+    private void ReleaseCargoForUnloading()
+    {
+        if (spawnedLorry == null)
+            return;
+
+        Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
+        foreach (Rigidbody body in bodies)
+        {
+            if (body == null)
+                continue;
+
+            // Keep gravity off so the packed load does not collapse as soon as
+            // the lorry parks, but make the rigidbodies non-kinematic so the
+            // forklift/pickup physics can move them during unloading.
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.useGravity = false;
+            body.isKinematic = false;
+            body.WakeUp();
+        }
     }
 
     private static float HorizontalDistance(Vector3 a, Vector3 b)
