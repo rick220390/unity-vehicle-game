@@ -55,7 +55,7 @@ public class WarehouseLorryArrival : MonoBehaviour
     {
         "WheelBL1", "WheelBL2", "WheelBL3",
         "WheelBR1", "WheelBR2", "WheelBR3",
-        "WheelFL1", "WheelFL2", "WheelFR1", "WheelFR2"
+        "WheelFL1", "WheelFL2", "WheelFR1", "WheelF2"
     };
 
     private void Start()
@@ -92,8 +92,16 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry != null)
             Destroy(spawnedLorry);
 
+        // Support either a Project prefab or a complete lorry already placed
+        // in the scene. If the source is a scene object, hide it before cloning
+        // so only the spawned delivery lorry is visible during play.
+        bool sourceIsSceneObject = lorryPrefab.scene.IsValid();
+        if (sourceIsSceneObject)
+            lorryPrefab.SetActive(false);
+
         spawnedLorry = Instantiate(lorryPrefab, spawnPoint.position, spawnPoint.rotation);
         spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
+        spawnedLorry.SetActive(true);
         ResolveWheelMeshes();
 
         arrivalRoutine = StartCoroutine(DriveRoute());
@@ -129,7 +137,6 @@ public class WarehouseLorryArrival : MonoBehaviour
                     truck.rotation, desiredRotation, turningSpeed * Time.deltaTime);
 
                 float step = Mathf.Min(drivingSpeed * Time.deltaTime, toTarget.magnitude);
-                Vector3 oldPosition = truck.position;
                 truck.position += travelDirection * step;
 
                 if (animateWheels)
