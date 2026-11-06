@@ -243,13 +243,12 @@ public class WarehouseLorryArrival : MonoBehaviour
             if (body == null)
                 continue;
 
-            // Keep gravity off so the packed load does not collapse as soon as
-            // the lorry parks, but make the rigidbodies non-kinematic so the
-            // forklift/pickup physics can move them during unloading.
+            // The trailer is the parent of the pallet/cargo load. Once parked,
+            // restore gravity so the cargo behaves normally during unloading.
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
-            body.useGravity = false;
             body.isKinematic = false;
+            body.useGravity = true;
             body.WakeUp();
         }
     }
