@@ -237,20 +237,49 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry == null)
             return;
 
-        Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
+        // Only release rigidbodies belonging to the trailer's cargo hierarchy.
+        // Do not make the cab, chassis, wheels or other vehicle rigidbodies dynamic.
+        Transform trailer = FindChildByName(spawnedLorry.transform, "BigTruck0102Trailer");
+        if (trailer == null)
+        {
+            Debug.LogError("WarehouseLorryArrival: Could not find BigTruck0102Trailer. Cargo physics was not released.", this);
+            return;
+        }
+
+        Rigidbody[] bodies = trailer.GetComponentsInChildren<Rigidbody>(true);
         foreach (Rigidbody body in bodies)
         {
-            if (body == null)
+            if (body == null || body.transform == trailer)
                 continue;
 
-            // The trailer is the parent of the pallet/cargo load. Once parked,
-            // restore gravity so the cargo behaves normally during unloading.
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
             body.isKinematic = false;
             body.useGravity = true;
+
+            // Improve stability when tightly packed cargo first settles.
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.Discrete;
+            body.solverIterations = 12;
+            body.solverVelocityIterations = 8;
+            body.maxDepenetrationVelocity = 2f;
+            body.maxAngularVelocity = 7f;
             body.WakeUp();
         }
+    }
+
+    private static Transform FindChildByName(Transform root, string exactName)
+    {
+        if (root == null)
+            return null;
+
+        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (child.name == exactName)
+                return child;
+        }
+
+        return null;
     }
 
     private static float HorizontalDistance(Vector3 a, Vector3 b)
