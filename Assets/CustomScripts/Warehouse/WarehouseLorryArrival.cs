@@ -47,6 +47,7 @@ public class WarehouseLorryArrival : MonoBehaviour
     private GameObject spawnedLorry;
     private Coroutine arrivalRoutine;
     private bool hasArrived;
+    private float lockedLorryY;
 
     public GameObject SpawnedLorry => spawnedLorry;
     public bool HasArrived => hasArrived;
@@ -96,10 +97,18 @@ public class WarehouseLorryArrival : MonoBehaviour
         // in the scene. If the source is a scene object, hide it before cloning
         // so only the spawned delivery lorry is visible during play.
         bool sourceIsSceneObject = lorryPrefab.scene.IsValid();
+
+        // Preserve the original scene lorry's exact world height so it remains
+        // aligned with the loading-bay floor. Project prefabs use Spawn Point Y.
+        lockedLorryY = sourceIsSceneObject
+            ? lorryPrefab.transform.position.y
+            : spawnPoint.position.y;
+
         if (sourceIsSceneObject)
             lorryPrefab.SetActive(false);
 
-        spawnedLorry = Instantiate(lorryPrefab, spawnPoint.position, spawnPoint.rotation);
+        Vector3 spawnPosition = new Vector3(spawnPoint.position.x, lockedLorryY, spawnPoint.position.z);
+        spawnedLorry = Instantiate(lorryPrefab, spawnPosition, spawnPoint.rotation);
         spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
         ResolveWheelMeshes();
@@ -120,7 +129,7 @@ public class WarehouseLorryArrival : MonoBehaviour
             }
 
             while (spawnedLorry != null &&
-                   Vector3.Distance(spawnedLorry.transform.position, point.target.position) > arrivalDistance)
+                   HorizontalDistance(spawnedLorry.transform.position, point.target.position) > arrivalDistance)
             {
                 Transform truck = spawnedLorry.transform;
                 Vector3 toTarget = point.target.position - truck.position;
@@ -137,7 +146,9 @@ public class WarehouseLorryArrival : MonoBehaviour
                     truck.rotation, desiredRotation, turningSpeed * Time.deltaTime);
 
                 float step = Mathf.Min(drivingSpeed * Time.deltaTime, toTarget.magnitude);
-                truck.position += travelDirection * step;
+                Vector3 movedPosition = truck.position + travelDirection * step;
+                movedPosition.y = lockedLorryY;
+                truck.position = movedPosition;
 
                 if (animateWheels)
                     RotateWheels(step, point.reverse);
@@ -154,7 +165,7 @@ public class WarehouseLorryArrival : MonoBehaviour
             // Snap only the final small positional remainder; preserve the lorry's
             // heading so the reverse manoeuvre finishes facing the correct way.
             Vector3 finalPosition = point.target.position;
-            finalPosition.y = spawnedLorry.transform.position.y;
+            finalPosition.y = lockedLorryY;
             spawnedLorry.transform.position = finalPosition;
 
             if (pauseAtEachPoint > 0f)
@@ -166,6 +177,13 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Lorry has reached the loading bay and is ready for unloading.", this);
+    }
+
+    private static float HorizontalDistance(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
     }
 
     private void ResolveWheelMeshes()
