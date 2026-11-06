@@ -111,6 +111,16 @@ public class WarehouseLorryArrival : MonoBehaviour
         spawnedLorry = Instantiate(lorryPrefab, spawnPosition, spawnPoint.rotation);
         spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
+
+        // This transform-driven vehicle must not have physics gravity fighting the route.
+        Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
+        foreach (Rigidbody body in bodies)
+        {
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.interpolation = RigidbodyInterpolation.None;
+        }
+
         ResolveWheelMeshes();
 
         arrivalRoutine = StartCoroutine(DriveRoute());
@@ -162,11 +172,22 @@ public class WarehouseLorryArrival : MonoBehaviour
                 yield break;
             }
 
-            // Snap only the final small positional remainder; preserve the lorry's
-            // heading so the reverse manoeuvre finishes facing the correct way.
+            // The waypoint rotation is authoritative for final alignment.
+            // Its blue Z arrow determines exactly which way the lorry faces.
             Vector3 finalPosition = point.target.position;
             finalPosition.y = lockedLorryY;
             spawnedLorry.transform.position = finalPosition;
+
+            Quaternion finalRotation = Quaternion.Euler(0f, point.target.eulerAngles.y, 0f);
+            while (spawnedLorry != null && Quaternion.Angle(spawnedLorry.transform.rotation, finalRotation) > 0.25f)
+            {
+                spawnedLorry.transform.rotation = Quaternion.RotateTowards(
+                    spawnedLorry.transform.rotation, finalRotation, turningSpeed * Time.deltaTime);
+                yield return null;
+            }
+
+            if (spawnedLorry != null)
+                spawnedLorry.transform.rotation = finalRotation;
 
             if (pauseAtEachPoint > 0f)
                 yield return new WaitForSeconds(pauseAtEachPoint);
