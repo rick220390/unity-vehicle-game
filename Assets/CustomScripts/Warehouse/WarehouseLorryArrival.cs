@@ -59,6 +59,32 @@ public class WarehouseLorryArrival : MonoBehaviour
         "WheelFL1", "WheelFL2", "WheelFR1", "WheelF2"
     };
 
+    // Some model/pallet scripts initialise their Rigidbody settings in Start().
+    // Re-apply the cargo physics state in LateUpdate so those initialisers cannot
+    // turn gravity back on after the lorry has been spawned.
+    private void LateUpdate()
+    {
+        EnforceLorryRigidbodies();
+    }
+
+    private void EnforceLorryRigidbodies()
+    {
+        if (spawnedLorry == null)
+            return;
+
+        Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
+        foreach (Rigidbody body in bodies)
+        {
+            if (body == null)
+                continue;
+
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+        }
+    }
+
     private void Start()
     {
         if (spawnOnStart)
@@ -119,6 +145,8 @@ public class WarehouseLorryArrival : MonoBehaviour
             body.useGravity = false;
             body.isKinematic = true;
             body.interpolation = RigidbodyInterpolation.None;
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
         }
 
         ResolveWheelMeshes();
