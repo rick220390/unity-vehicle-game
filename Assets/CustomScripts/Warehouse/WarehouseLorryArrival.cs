@@ -226,23 +226,26 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         hasArrived = true;
         arrivalRoutine = null;
-        ReleaseCargoForUnloading();
+        LockCargoForUnloading();
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Lorry has reached the loading bay and is ready for unloading.", this);
     }
 
-    private void ReleaseCargoForUnloading()
+    private void LockCargoForUnloading()
     {
         if (spawnedLorry == null)
             return;
 
-        // Only release rigidbodies belonging to the trailer's cargo hierarchy.
-        // Do not make the cab, chassis, wheels or other vehicle rigidbodies dynamic.
+        // Keep the complete trailer load fixed while parked. Making every
+        // pallet Rigidbody dynamic at once causes tightly packed/stacked
+        // cargo colliders to push against one another and explode outward.
+        // Individual pallets will be made dynamic later by the forklift
+        // pickup interaction, one at a time.
         Transform trailer = FindChildByName(spawnedLorry.transform, "BigTruck0102Trailer");
         if (trailer == null)
         {
-            Debug.LogError("WarehouseLorryArrival: Could not find BigTruck0102Trailer. Cargo physics was not released.", this);
+            Debug.LogError("WarehouseLorryArrival: Could not find BigTruck0102Trailer. Trailer cargo remains locked.", this);
             return;
         }
 
@@ -254,17 +257,9 @@ public class WarehouseLorryArrival : MonoBehaviour
 
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
-            body.isKinematic = false;
-            body.useGravity = true;
-
-            // Improve stability when tightly packed cargo first settles.
-            body.interpolation = RigidbodyInterpolation.Interpolate;
-            body.collisionDetectionMode = CollisionDetectionMode.Discrete;
-            body.solverIterations = 12;
-            body.solverVelocityIterations = 8;
-            body.maxDepenetrationVelocity = 2f;
-            body.maxAngularVelocity = 7f;
-            body.WakeUp();
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.interpolation = RigidbodyInterpolation.None;
         }
     }
 
