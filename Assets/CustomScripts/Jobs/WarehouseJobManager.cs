@@ -91,6 +91,25 @@ public sealed class WarehouseJobManager : MonoBehaviour
             return false;
         }
 
+        // Bind the exact scene player explicitly. Do not depend on Awake's tag lookup
+        // running at the right time on an instantiated forklift.
+        GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+        if (playerObject == null)
+        {
+            Debug.LogError("WarehouseJobManager: Could not find an active GameObject tagged Player.", this);
+        }
+        else
+        {
+            ForkliftPlayerInteractor interactor = spawnedForklift.GetComponent<ForkliftPlayerInteractor>();
+            if (interactor == null)
+                interactor = spawnedForklift.GetComponentInChildren<ForkliftPlayerInteractor>(true);
+
+            if (interactor != null)
+                interactor.BindPlayer(playerObject.transform);
+            else
+                Debug.LogError("WarehouseJobManager: Spawned forklift has no ForkliftPlayerInteractor component.", spawnedForklift);
+        }
+
         WarehousePalletStorageSlot[] storageSlots = FindObjectsOfType<WarehousePalletStorageSlot>(true);
         foreach (WarehousePalletStorageSlot slot in storageSlots)
             slot.SetForklift(spawnedController);
