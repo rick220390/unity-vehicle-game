@@ -155,17 +155,17 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
             if (hit == null)
                 continue;
 
-            Rigidbody body = hit.attachedRigidbody;
+            Rigidbody hitBody = hit.attachedRigidbody;
             bool colliderInTrailer = hit.transform.IsChildOf(trailer);
-            bool bodyInTrailer = body != null && body.transform.IsChildOf(trailer);
+            Rigidbody body = colliderInTrailer ? FindTopLevelCargoBody(hit.transform, trailer) : null;
 
             Debug.Log(
                 "TrailerUnloader DIAGNOSTIC: Hit collider='" + GetPath(hit.transform) +
-                "', attachedRigidbody=" + (body != null ? GetPath(body.transform) : "NULL") +
-                ", colliderInTrailer=" + colliderInTrailer +
-                ", bodyInTrailer=" + bodyInTrailer + ".", hit);
+                "', attachedRigidbody=" + (hitBody != null ? GetPath(hitBody.transform) : "NULL") +
+                ", selectedPalletBody=" + (body != null ? GetPath(body.transform) : "NULL") +
+                ", colliderInTrailer=" + colliderInTrailer + ".", hit);
 
-            if (body == null || !bodyInTrailer)
+            if (body == null)
                 continue;
 
             if (releasedPallets.Contains(body.GetInstanceID()))
@@ -200,6 +200,26 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         nextReleaseTime = Time.time + liftReleaseCooldown;
 
         Debug.Log("TrailerUnloader: Successfully released pallet '" + candidate.name + "'.", candidate);
+    }
+
+    // Returns the outermost cargo Rigidbody between the hit collider and
+    // the trailer root. This deliberately selects the pallet Rigidbody rather
+    // than a Rigidbody on an individual box nested under that pallet.
+    private static Rigidbody FindTopLevelCargoBody(Transform hitTransform, Transform trailerRoot)
+    {
+        Rigidbody selected = null;
+        Transform current = hitTransform;
+
+        while (current != null && current != trailerRoot)
+        {
+            Rigidbody body = current.GetComponent<Rigidbody>();
+            if (body != null)
+                selected = body;
+
+            current = current.parent;
+        }
+
+        return selected;
     }
 
     private Transform FindTrailer()
