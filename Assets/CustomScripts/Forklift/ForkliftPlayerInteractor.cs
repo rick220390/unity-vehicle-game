@@ -119,8 +119,47 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             Debug.LogError("ForkliftPlayerInteractor: No WSMVehicleCamera was found. Add the camera to the scene and ensure its GameObject is active before the job starts.", this);
     }
 
+    /// <summary>Explicitly binds the scene player to this runtime-spawned forklift.</summary>
+    public void BindPlayer(Transform playerTransform)
+    {
+        player = playerTransform;
+        if (player == null)
+        {
+            Debug.LogError("ForkliftPlayerInteractor: BindPlayer received a null player.", this);
+            return;
+        }
+
+        playerRigidbody = player.GetComponent<Rigidbody>();
+        if (playerRigidbody == null) playerRigidbody = player.GetComponentInChildren<Rigidbody>();
+
+        if (playerCameraController == null)
+        {
+            foreach (Behaviour component in player.GetComponentsInChildren<Behaviour>(true))
+            {
+                if (component != null && component.GetType().Name == "vThirdPersonCamera")
+                {
+                    playerCameraController = component;
+                    break;
+                }
+            }
+        }
+
+        if (playerCamera == null && playerCameraController != null)
+            playerCamera = playerCameraController.GetComponent<Camera>();
+        if (playerCamera == null) playerCamera = Camera.main;
+
+        Debug.Log("ForkliftPlayerInteractor: Player bound to spawned forklift: " + player.name, this);
+    }
+
     private void Update()
     {
+        // The player may be created after this forklift (or assigned by the job manager).
+        if (player == null)
+        {
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null) BindPlayer(playerObject.transform);
+        }
+
         if (player == null) return;
 
         if (isOccupied)
