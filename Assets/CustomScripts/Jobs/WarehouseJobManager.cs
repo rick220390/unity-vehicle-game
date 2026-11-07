@@ -14,6 +14,8 @@ public sealed class WarehouseJobManager : MonoBehaviour
     [Header("Warehouse equipment")]
     [SerializeField] private GameObject forkliftPrefab;
     [SerializeField] private Transform forkliftSpawnPoint;
+    [Tooltip("Player is moved here when the shift is completed. Place this outside the warehouse.")]
+    [SerializeField] private Transform playerReturnPoint;
     [SerializeField] private WarehouseLorryArrival lorryArrival;
 
     [Header("Shift settings")]
@@ -45,6 +47,12 @@ public sealed class WarehouseJobManager : MonoBehaviour
         if (forkliftPrefab == null || forkliftSpawnPoint == null)
         {
             Debug.LogError("WarehouseJobManager: Assign the forklift prefab and forklift spawn point.", this);
+            return false;
+        }
+
+        if (playerReturnPoint == null)
+        {
+            Debug.LogError("WarehouseJobManager: Assign Player Return Point outside the warehouse. The shift cannot start without it.", this);
             return false;
         }
 
@@ -152,6 +160,36 @@ public sealed class WarehouseJobManager : MonoBehaviour
         State = JobState.Completed;
         PlayerEconomy.Instance.AddMoney(completionPayment, jobTitle + " shift completed");
         Debug.Log("WarehouseJobManager: Shift complete. Paid £" + completionPayment.ToString("N2") + ".", this);
+
+        // Return the player before destroying the forklift, otherwise a seated
+        // player would be destroyed along with the forklift hierarchy.
+        if (spawnedForklift != null)
+        {
+            ForkliftPlayerInteractor interactor = spawnedForklift.GetComponent<ForkliftPlayerInteractor>();
+            if (interactor == null)
+                interactor = spawnedForklift.GetComponentInChildren<ForkliftPlayerInteractor>(true);
+
+            if (interactor != null)
+            {
+                interactor.ReturnPlayerTo(playerReturnPoint);
+            }
+            else
+            {
+                GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+                if (playerObject != null)
+                    playerObject.transform.SetPositionAndRotation(playerReturnPoint.position, playerReturnPoint.rotation);
+                else
+                    Debug.LogError("WarehouseJobManager: Could not find the player to return outside the warehouse.", this);
+            }
+
+            Destroy(spawnedForklift);
+            spawnedForklift = null;
+        }
+
+        // Remove the delivery lorry and any remaining cargo, even if the
+        // player completed the required count before unloading every pallet.
+        if (lorryArrival != null)
+            lorryArrival.RemoveLorry();
     }
 
     private void OnGUI()
