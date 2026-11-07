@@ -38,7 +38,7 @@ public sealed class WarehouseJobManager : MonoBehaviour
 
         if (PlayerEconomy.Instance == null)
         {
-            Debug.LogError("WarehouseJobManager: Add a PlayerEconomy component to the scene before starting this job.", this);
+            Debug.LogError("WarehouseJobManager: The persistent PlayerEconomy has not initialised.", this);
             return false;
         }
 
@@ -76,12 +76,17 @@ public sealed class WarehouseJobManager : MonoBehaviour
         if (spawnedController == null)
             spawnedController = spawnedForklift.GetComponentInChildren<ForkliftController>();
 
+        if (spawnedController == null)
+        {
+            Debug.LogError("WarehouseJobManager: The spawned forklift prefab has no ForkliftController. Shift was not started.", spawnedForklift);
+            Destroy(spawnedForklift);
+            spawnedForklift = null;
+            return false;
+        }
+
         WarehousePalletStorageSlot[] storageSlots = FindObjectsOfType<WarehousePalletStorageSlot>(true);
         foreach (WarehousePalletStorageSlot slot in storageSlots)
             slot.SetForklift(spawnedController);
-
-        if (spawnedController == null)
-            Debug.LogError("WarehouseJobManager: The spawned forklift prefab has no ForkliftController.", spawnedForklift);
 
         // The prefab carries the WSM controllers and the existing enter/exit script.
         // Disable player input until the player enters through ForkliftPlayerInteractor.
