@@ -116,7 +116,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (vehicleController == null || vehicleInput == null || forkliftInput == null)
             Debug.LogError("ForkliftPlayerInteractor: One or more WSM forklift components are missing.", this);
         if (forkliftCamera == null)
-            Debug.LogError("ForkliftPlayerInteractor: No WSMVehicleCamera was found. Add the camera to the scene and ensure its GameObject is active before the job starts.", this);
+            Debug.LogWarning("ForkliftPlayerInteractor: No WSMVehicleCamera was found. Forklift entry will use the player camera as a fallback.", this);
     }
 
     /// <summary>Explicitly binds the scene player to this runtime-spawned forklift.</summary>
@@ -209,6 +209,12 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     {
         if (isOccupied || player == null || driverSeatPoint == null) return;
 
+        if (vehicleController == null || vehicleInput == null || forkliftInput == null)
+        {
+            Debug.LogError("ForkliftPlayerInteractor: Cannot enter because a required WSM forklift controller/input component is missing.", this);
+            return;
+        }
+
         isOccupied = true;
         originalParent = player.parent;
         originalLocalScale = player.localScale;
@@ -229,10 +235,13 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         foreach (Behaviour behaviour in lockedBehaviours)
             if (behaviour != null) behaviour.enabled = false;
 
-        if (playerCameraController != null)
-            playerCameraController.enabled = false;
-        if (playerCamera != null)
-            playerCamera.enabled = false;
+        if (forkliftCamera != null)
+        {
+            if (playerCameraController != null)
+                playerCameraController.enabled = false;
+            if (playerCamera != null)
+                playerCamera.enabled = false;
+        }
 
         player.SetParent(driverSeatPoint, false);
         player.localPosition = Vector3.zero;
@@ -240,10 +249,13 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         player.localScale = originalLocalScale;
 
         // Prepare camera target before enabling the camera GameObject.
-        forkliftCamera.Target = transform;
-        forkliftCamera.gameObject.SetActive(true);
-        if (forkliftCameraInput != null)
-            forkliftCameraInput.enablePlayerInput = true;
+        if (forkliftCamera != null)
+        {
+            forkliftCamera.Target = transform;
+            forkliftCamera.gameObject.SetActive(true);
+            if (forkliftCameraInput != null)
+                forkliftCameraInput.enablePlayerInput = true;
+        }
 
         vehicleController.IsEngineOn = true;
         vehicleController.SteeringInput = 0f;
