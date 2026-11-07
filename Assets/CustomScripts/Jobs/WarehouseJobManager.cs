@@ -69,8 +69,15 @@ public sealed class WarehouseJobManager : MonoBehaviour
         if (spawnedForklift != null)
             Destroy(spawnedForklift);
 
+        // Accept either a Project prefab or the working forklift placed in the
+        // scene. Hide a scene source so the shift creates only one visible truck.
+        bool forkliftSourceIsSceneObject = forkliftPrefab.scene.IsValid();
+        if (forkliftSourceIsSceneObject)
+            forkliftPrefab.SetActive(false);
+
         spawnedForklift = Instantiate(forkliftPrefab, forkliftSpawnPoint.position, forkliftSpawnPoint.rotation);
         spawnedForklift.name = forkliftPrefab.name + "_WarehouseShift";
+        spawnedForklift.SetActive(true);
 
         ForkliftController spawnedController = spawnedForklift.GetComponent<ForkliftController>();
         if (spawnedController == null)
