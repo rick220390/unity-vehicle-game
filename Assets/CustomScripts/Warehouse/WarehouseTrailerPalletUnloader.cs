@@ -16,8 +16,9 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
     [Header("Fork engagement detection")]
     [SerializeField] private Vector3 detectionBoxSize = new Vector3(1.6f, 0.8f, 2.2f);
     [SerializeField] private float detectionForwardOffset = 0.9f;
-    [Range(0.001f, 0.1f)]
-    [SerializeField] private float liftInputThreshold = 0.005f;
+    [Range(0.0001f, 0.01f)]
+    [Tooltip("Fork lift input changes gradually each frame, so this must be below the per-frame movement amount.")]
+    [SerializeField] private float liftInputThreshold = 0.0005f;
     [SerializeField] private float liftReleaseCooldown = 0.5f;
 
     private float previousLiftInput;
