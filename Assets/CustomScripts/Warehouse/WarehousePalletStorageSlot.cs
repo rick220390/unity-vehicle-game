@@ -38,6 +38,8 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     private Rigidbody candidate;
     private float stableTimer;
     private float previousLiftInput;
+    private float previousLeftForkY;
+    private float previousRightForkY;
     private bool occupied;
     private int recentlyReleasedPalletId;
 
@@ -71,7 +73,11 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         }
 
         if (forklift != null)
+        {
             previousLiftInput = forklift.ForksVertical;
+            if (forklift.fork_L != null) previousLeftForkY = forklift.fork_L.transform.position.y;
+            if (forklift.fork_R != null) previousRightForkY = forklift.fork_R.transform.position.y;
+        }
     }
 
     private void OnTriggerEnter(Collider other)
@@ -173,27 +179,66 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         }
 
         float liftInput = forklift.ForksVertical;
-        bool lifting = liftInput > previousLiftInput + liftInputThreshold;
-        previousLiftInput = liftInput;
+        float leftForkY = forklift.fork_L.transform.position.y;
+        float rightForkY = forklift.fork_R.transform.position.y;
 
-        if (!lifting || !AreForksInsertedUnder(candidate))
+        // Use actual fork movement as well as the controller input. This still
+        // works if the input value is already at its upper limit.
+        bool lifting = liftInput > previousLiftInput + liftInputThreshold ||
+                       leftForkY > previousLeftForkY + 0.0001f ||
+                       rightForkY > previousRightForkY + 0.0001f;
+
+        previousLiftInput = liftInput;
+        previousLeftForkY = leftForkY;
+        previousRightForkY = rightForkY;
+
+        if (!lifting)
             return;
 
-        ReleaseStoredPallet();
+        bool forksInserted = AreForksInsertedUnder(candidate);
+        Debug.Log(
+            "WarehousePalletStorageSlot: Upward fork movement at '" + name +
+            "'. Forks inserted under stored pallet=" + forksInserted +
+            ". Left fork Y=" + leftForkY.ToString("F3") +
+            ", right fork Y=" + rightForkY.ToString("F3") + ".", this);
+
+        if (forksInserted)
+            ReleaseStoredPallet();
     }
 
     private bool AreForksInsertedUnder(Rigidbody pallet)
     {
-        Bounds bounds = GetPalletBounds(pallet);
+        Bounds palletBounds = GetPalletBounds(pallet);
 
-        // Forks must be within the pallet's horizontal footprint and at pallet height
-        // or just below it. This prevents lifting the forks elsewhere from releasing it.
-        bounds.Expand(new Vector3(forkClearancePadding * 2f, 0f, forkClearancePadding * 2f));
-        bounds.min = new Vector3(bounds.min.x, bounds.min.y - forkInsertionBelowPallet, bounds.min.z);
-        bounds.max = new Vector3(bounds.max.x, bounds.max.y + forkInsertionAbovePallet, bounds.max.z);
+        // The fork component transforms are often located back at their mounting
+        // points, not at the fork tips. Test the actual fork collider bounds instead.
+        float minForkY = palletBounds.min.y - forkInsertionBelowPallet;
+        float maxForkY = palletBounds.min.y + forkInsertionAbovePallet;
+        Bounds insertionBand = new Bounds(
+            new Vector3(palletBounds.center.x, (minForkY + maxForkY) * 0.5f, palletBounds.center.z),
+            new Vector3(
+                palletBounds.size.x + forkClearancePadding * 2f,
+                maxForkY - minForkY,
+                palletBounds.size.z + forkClearancePadding * 2f));
 
-        return bounds.Contains(forklift.fork_L.transform.position) &&
-               bounds.Contains(forklift.fork_R.transform.position);
+        return ForkColliderIntersectsInsertionBand(forklift.fork_L.transform, insertionBand) &&
+               ForkColliderIntersectsInsertionBand(forklift.fork_R.transform, insertionBand);
+    }
+
+    private static bool ForkColliderIntersectsInsertionBand(Transform forkRoot, Bounds insertionBand)
+    {
+        Collider[] forkColliders = forkRoot.GetComponentsInChildren<Collider>();
+        foreach (Collider forkCollider in forkColliders)
+        {
+            if (forkCollider == null || forkCollider.isTrigger)
+                continue;
+
+            if (forkCollider.bounds.Intersects(insertionBand))
+                return true;
+        }
+
+        // Fallback for fork models that do not have colliders on the fork parts.
+        return insertionBand.Contains(forkRoot.position);
     }
 
     private static Bounds GetPalletBounds(Rigidbody pallet)
@@ -240,6 +285,8 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         occupied = true;
         stableTimer = 0f;
         previousLiftInput = forklift != null ? forklift.ForksVertical : 0f;
+        if (forklift != null && forklift.fork_L != null) previousLeftForkY = forklift.fork_L.transform.position.y;
+        if (forklift != null && forklift.fork_R != null) previousRightForkY = forklift.fork_R.transform.position.y;
 
         Debug.Log("WarehousePalletStorageSlot: Stored pallet '" + candidate.name + "' in slot '" + name + "'.", candidate);
     }
@@ -263,6 +310,8 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         occupied = false;
         ClearCandidate();
         previousLiftInput = forklift.ForksVertical;
+        previousLeftForkY = forklift.fork_L.transform.position.y;
+        previousRightForkY = forklift.fork_R.transform.position.y;
 
         Debug.Log("WarehousePalletStorageSlot: Released pallet '" + pallet.name + "' for forklift retrieval.", pallet);
     }
