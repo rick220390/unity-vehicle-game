@@ -188,6 +188,18 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
             return;
         }
 
+        // Remove the transport joint before detaching the pallet from the load.
+        FixedJoint[] cargoJoints = candidate.GetComponents<FixedJoint>();
+        foreach (FixedJoint cargoJoint in cargoJoints)
+        {
+            if (cargoJoint == null)
+                continue;
+
+            cargoJoint.connectedBody = null;
+            cargoJoint.enabled = false;
+            Destroy(cargoJoint);
+        }
+
         candidate.transform.SetParent(null, true);
         candidate.velocity = Vector3.zero;
         candidate.angularVelocity = Vector3.zero;
