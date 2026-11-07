@@ -210,7 +210,6 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
 
         StopVehicle();
         hasArrived = true;
-        LockCargoForUnloading();
         arrivalRoutine = null;
 
         if (logArrival)
@@ -221,51 +220,6 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
     {
         if (truckController != null)
             truckController.StopDriving();
-    }
-
-    private void LockCargoForUnloading()
-    {
-        if (spawnedTrailer == null)
-            return;
-
-        // Only lock pallet bodies inside the dedicated Load container.
-        // Never touch trailer wheels, suspension, chassis or coupling bodies.
-        Transform load = FindChild(spawnedTrailer.transform, "Load");
-        if (load == null)
-        {
-            Debug.LogWarning("WarehouseLorryArrival: No child named 'Load' found on the spawned trailer. Cargo was not locked.", spawnedTrailer);
-            return;
-        }
-
-        Rigidbody[] loadBodies = load.GetComponentsInChildren<Rigidbody>(true);
-        foreach (Rigidbody body in loadBodies)
-        {
-            if (body == null || body.transform == load)
-                continue;
-
-            // Only process the outermost Rigidbody in each cargo branch
-            // (normally the pallet root); ignore nested box/prop Rigidbodies.
-            Transform parent = body.transform.parent;
-            bool hasCargoRigidbodyParent = false;
-            while (parent != null && parent != load)
-            {
-                if (parent.GetComponent<Rigidbody>() != null)
-                {
-                    hasCargoRigidbodyParent = true;
-                    break;
-                }
-                parent = parent.parent;
-            }
-
-            if (hasCargoRigidbodyParent)
-                continue;
-
-            body.velocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.useGravity = false;
-            body.isKinematic = true;
-            body.interpolation = RigidbodyInterpolation.None;
-        }
     }
 
     private static Transform FindChild(Transform root, string exactName)
