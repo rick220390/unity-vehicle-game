@@ -37,6 +37,16 @@ public sealed class PlayerEconomy : MonoBehaviour
 
     private readonly List<Transaction> transactions = new List<Transaction>();
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void EnsureCreated()
+    {
+        if (Instance != null)
+            return;
+
+        GameObject economyObject = new GameObject("PlayerEconomy");
+        economyObject.AddComponent<PlayerEconomy>();
+    }
+
     public float Balance => balance;
     public IReadOnlyList<Transaction> Transactions => transactions;
 
