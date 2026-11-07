@@ -86,7 +86,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (player == null)
         {
             GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-            if (playerObject != null) player = playerObject.transform;
+            if (playerObject != null) BindPlayer(playerObject.transform);
         }
 
         if (player != null)
@@ -122,7 +122,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     /// <summary>Explicitly binds the scene player to this runtime-spawned forklift.</summary>
     public void BindPlayer(Transform playerTransform)
     {
-        player = playerTransform;
+        player = ResolvePlayerRoot(playerTransform);
         if (player == null)
         {
             Debug.LogError("ForkliftPlayerInteractor: BindPlayer received a null player.", this);
@@ -149,6 +149,34 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (playerCamera == null) playerCamera = Camera.main;
 
         Debug.Log("ForkliftPlayerInteractor: Player bound to spawned forklift: " + player.name, this);
+    }
+
+    /// <summary>
+    /// The Player tag can be on a nested VBot bone/collider rather than the
+    /// Invector character root. Always bind the actual ThirdPersonController root.
+    /// </summary>
+    private Transform ResolvePlayerRoot(Transform candidate)
+    {
+        if (candidate == null) return null;
+
+        Transform fallback = candidate;
+        for (Transform current = candidate; current != null; current = current.parent)
+        {
+            if (current.name == "ThirdPersonController_LITE")
+                return current;
+
+            MonoBehaviour[] components = current.GetComponents<MonoBehaviour>();
+            foreach (MonoBehaviour component in components)
+            {
+                if (component == null) continue;
+                string typeName = component.GetType().Name;
+                if (typeName == "vThirdPersonController" ||
+                    typeName == "vThirdPersonInput")
+                    return current;
+            }
+        }
+
+        return fallback;
     }
 
     private void Update()
