@@ -101,10 +101,9 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
         spawnedTrailer.name = selectedTrailer.name + "_Trailer";
         spawnedTrailer.transform.SetParent(spawnedVehicleRoot.transform, true);
 
+        // The tractor's main Rigidbody must live on the tractor prefab root so
+        // the AI controller, wheel colliders and fifth-wheel joint share one body.
         Rigidbody tractorBody = spawnedTractor.GetComponent<Rigidbody>();
-        if (tractorBody == null)
-            tractorBody = spawnedTractor.GetComponentInChildren<Rigidbody>();
-
         Rigidbody trailerBody = spawnedTrailer.GetComponent<Rigidbody>();
         if (trailerBody == null)
         {
@@ -120,6 +119,7 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
         {
             Debug.LogError(
                 "WarehouseLorryArrival: Could not prepare coupling. Tractor Rigidbody=" + (tractorBody != null) +
+                ". Tractor root Rigidbody=" + (tractorBody != null) +
                 ", " + fifthWheelPivotName + "=" + (fifthWheelPivot != null) +
                 ", trailer Rigidbody=" + (trailerBody != null) +
                 ", " + kingpinPivotName + "=" + (kingpinPivot != null) + ".", this);
