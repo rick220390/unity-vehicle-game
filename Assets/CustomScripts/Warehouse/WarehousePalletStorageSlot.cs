@@ -35,6 +35,8 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     [Range(0.0001f, 0.01f)]
     [Tooltip("Fork lift input changes gradually each frame. This detects the upward movement.")]
     [SerializeField] private float liftInputThreshold = 0.0005f;
+    [Tooltip("Delay after a pallet is secured on the shelf before forklift lift input can retrieve it.")]
+    [SerializeField, Min(0f)] private float retrievalCooldownAfterStorage = 1.25f;
 
     [Header("Storage stability")]
     [SerializeField, Min(0.05f)] private float stableSpeedThreshold = 0.08f;
@@ -48,6 +50,7 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     private float previousRightForkY;
     private bool occupied;
     private int recentlyReleasedPalletId;
+    private float retrievalAllowedAt;
 
     public bool IsOccupied => occupied;
     public Rigidbody StoredPallet => occupied ? candidate : null;
@@ -209,7 +212,16 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         ForkliftPlayerInput playerInput = forklift.GetComponent<ForkliftPlayerInput>();
         if (playerInput != null && !playerInput.enablePlayerInput)
         {
-            previousLiftInput = forklift.ForksVertical;
+            RefreshForkliftMovementBaseline();
+            return;
+        }
+
+        // Ignore fork movement while the operator is withdrawing or repositioning
+        // immediately after placing a pallet. Keep sampling during the cooldown so
+        // movement that happened during it cannot trigger a delayed pickup.
+        if (Time.time < retrievalAllowedAt)
+        {
+            RefreshForkliftMovementBaseline();
             return;
         }
 
@@ -237,6 +249,13 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
 
         if (forksInserted)
             ReleaseStoredPallet();
+    }
+
+    private void RefreshForkliftMovementBaseline()
+    {
+        previousLiftInput = forklift.ForksVertical;
+        previousLeftForkY = forklift.fork_L.transform.position.y;
+        previousRightForkY = forklift.fork_R.transform.position.y;
     }
 
     private bool AreForksInsertedUnder(Rigidbody pallet)
@@ -314,6 +333,7 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
 
         occupied = true;
         stableTimer = 0f;
+        retrievalAllowedAt = Time.time + retrievalCooldownAfterStorage;
         previousLiftInput = forklift != null ? forklift.ForksVertical : 0f;
         if (forklift != null && forklift.fork_L != null) previousLeftForkY = forklift.fork_L.transform.position.y;
         if (forklift != null && forklift.fork_R != null) previousRightForkY = forklift.fork_R.transform.position.y;
