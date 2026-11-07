@@ -1,19 +1,25 @@
 using UnityEngine;
 
 /// <summary>
-/// Warehouse job application point. Uses the same distance-based interaction
-/// pattern as ForkliftPlayerInteractor, so it does not depend on trigger
-/// callbacks or the player having a Rigidbody.
+/// Warehouse job application point. Uses distance-based interaction so it
+/// does not depend on trigger callbacks or the player having a Rigidbody.
+/// Assign Player Transform in the Inspector if the project does not use the
+/// exact Unity tag "Player".
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class WarehouseJobApplicationTrigger : MonoBehaviour
 {
+    [Header("References")]
     [SerializeField] private WarehouseJobManager jobManager;
+    [SerializeField] private Transform playerTransform;
     [SerializeField] private Transform interactionPoint;
+
+    [Header("Interaction")]
     [SerializeField, Min(1f)] private float interactionRange = 3.5f;
     [SerializeField] private KeyCode interactKey = KeyCode.E;
 
-    private Transform player;
+    private bool reportedMissingPlayer;
+    private bool reportedMissingManager;
 
     private void Awake()
     {
@@ -26,10 +32,9 @@ public sealed class WarehouseJobApplicationTrigger : MonoBehaviour
 
     private void Update()
     {
-        if (player == null || jobManager == null)
-            ResolveReferences();
+        ResolveReferences();
 
-        if (!CanInteract())
+        if (playerTransform == null || jobManager == null || !CanInteract())
             return;
 
         if (Input.GetKeyDown(interactKey))
@@ -50,29 +55,55 @@ public sealed class WarehouseJobApplicationTrigger : MonoBehaviour
 #endif
         }
 
-        if (player == null)
+        if (playerTransform == null)
         {
-            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
-            if (playerObject != null)
-                player = playerObject.transform;
+            // First try the project's conventional player tag.
+            try
+            {
+                GameObject taggedPlayer = GameObject.FindGameObjectWithTag("Player");
+                if (taggedPlayer != null)
+                    playerTransform = taggedPlayer.transform;
+            }
+            catch (UnityException)
+            {
+                // The Player tag may not exist in this project.
+            }
+        }
+
+        if (playerTransform == null && Camera.main != null)
+        {
+            // In the usual third-person setup the main camera is parented
+            // beneath the player/camera rig, so its root is a useful fallback.
+            Transform cameraRoot = Camera.main.transform.root;
+            if (cameraRoot != transform.root)
+                playerTransform = cameraRoot;
+        }
+
+        if (playerTransform == null && !reportedMissingPlayer)
+        {
+            reportedMissingPlayer = true;
+            Debug.LogWarning("Warehouse application: no player found. Assign the player root Transform to the 'Player Transform' field, or tag the player root exactly 'Player'.", this);
+        }
+
+        if (jobManager == null && !reportedMissingManager)
+        {
+            reportedMissingManager = true;
+            Debug.LogWarning("Warehouse application: no active WarehouseJobManager found in this scene.", this);
         }
     }
 
     private bool CanInteract()
     {
-        if (player == null || jobManager == null)
+        if (playerTransform == null || jobManager == null)
             return false;
 
         Vector3 point = interactionPoint != null ? interactionPoint.position : transform.position;
-        return Vector3.Distance(player.position, point) <= interactionRange;
+        return Vector3.Distance(playerTransform.position, point) <= interactionRange;
     }
 
     private void OnGUI()
     {
-        if (player == null || jobManager == null)
-            return;
-
-        if (!CanInteract())
+        if (playerTransform == null || jobManager == null || !CanInteract())
             return;
 
         string prompt = jobManager.State == WarehouseJobManager.JobState.Active
