@@ -4,7 +4,7 @@ using WSMGameStudio.HeavyMachinery;
 
 /// <summary>
 /// Releases one trailer pallet when the forklift forks are inserted underneath
-/// it and the operator starts lifting. Add this component to the forklift root.
+/// it and the operator starts lifting.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
@@ -14,17 +14,16 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
     [SerializeField] private ForkliftController forklift;
 
     [Header("Fork engagement detection")]
-    [Tooltip("Overlap volume around the forks. Increase depth if the fork tips are long.")]
     [SerializeField] private Vector3 detectionBoxSize = new Vector3(1.6f, 0.8f, 2.2f);
-    [Tooltip("Moves the detection volume forward from the fork roots.")]
     [SerializeField] private float detectionForwardOffset = 0.9f;
-    [Tooltip("Minimum increase in fork lift input before a pallet is released.")]
     [Range(0.001f, 0.1f)]
     [SerializeField] private float liftInputThreshold = 0.005f;
     [SerializeField] private float liftReleaseCooldown = 0.5f;
 
     private float previousLiftInput;
     private float nextReleaseTime;
+    private float nextStatusLogTime;
+    private bool warnedInputDisabled;
     private readonly Collider[] overlapResults = new Collider[64];
     private readonly HashSet<int> releasedPallets = new HashSet<int>();
 
@@ -43,36 +42,68 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         }
 
         if (forklift == null)
-            Debug.LogError("WarehouseTrailerPalletUnloader: ForkliftController is missing.", this);
+            Debug.LogError("TrailerUnloader DIAGNOSTIC: ForkliftController is missing on this object.", this);
 
         if (lorryArrival == null)
-            Debug.LogError("WarehouseTrailerPalletUnloader: WarehouseLorryArrival was not found. Assign it in the Inspector.", this);
+            Debug.LogError("TrailerUnloader DIAGNOSTIC: WarehouseLorryArrival was not found.", this);
 
         if (forklift != null)
             previousLiftInput = forklift.ForksVertical;
+
+        Debug.Log(
+            "TrailerUnloader DIAGNOSTIC: Awake on '" + name +
+            "'. Enabled=" + enabled +
+            ", forklift=" + (forklift != null ? forklift.name : "NULL") +
+            ", lorryArrival=" + (lorryArrival != null ? lorryArrival.name : "NULL") +
+            ", ForksVertical=" + (forklift != null ? forklift.ForksVertical.ToString("F3") : "n/a") +
+            ".", this);
     }
 
     private void Update()
     {
-        if (forklift == null || lorryArrival == null || !lorryArrival.HasArrived)
+        if (forklift == null || lorryArrival == null)
             return;
 
-        // The WSM player-input component is enabled only while someone is
-        // operating the forklift through ForkliftPlayerInteractor.
+        if (!lorryArrival.HasArrived)
+        {
+            if (Time.time >= nextStatusLogTime)
+            {
+                Debug.Log("TrailerUnloader DIAGNOSTIC: Waiting for lorry arrival.", this);
+                nextStatusLogTime = Time.time + 3f;
+            }
+            return;
+        }
+
         ForkliftPlayerInput playerInput = GetComponent<ForkliftPlayerInput>();
         if (playerInput != null && !playerInput.enablePlayerInput)
         {
             previousLiftInput = forklift.ForksVertical;
+            if (!warnedInputDisabled)
+            {
+                Debug.Log("TrailerUnloader DIAGNOSTIC: ForkliftPlayerInput is present but enablePlayerInput is FALSE.", this);
+                warnedInputDisabled = true;
+            }
             return;
         }
 
+        warnedInputDisabled = false;
         float liftInput = forklift.ForksVertical;
         bool lifting = liftInput > previousLiftInput + liftInputThreshold;
+
+        if (Mathf.Abs(liftInput - previousLiftInput) > 0.0001f)
+        {
+            Debug.Log(
+                "TrailerUnloader DIAGNOSTIC: ForksVertical changed from " +
+                previousLiftInput.ToString("F3") + " to " + liftInput.ToString("F3") +
+                "; upward trigger=" + lifting + ".", this);
+        }
+
         previousLiftInput = liftInput;
 
         if (!lifting || Time.time < nextReleaseTime)
             return;
 
+        Debug.Log("TrailerUnloader DIAGNOSTIC: Upward lift detected. Checking pallet overlap.", this);
         TryReleasePallet();
     }
 
@@ -80,8 +111,14 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
     {
         MovingMechanicalPart left = forklift.fork_L;
         MovingMechanicalPart right = forklift.fork_R;
+
         if (left == null || right == null)
+        {
+            Debug.LogError(
+                "TrailerUnloader DIAGNOSTIC: Fork reference missing. Left=" +
+                (left != null) + ", Right=" + (right != null) + ".", this);
             return;
+        }
 
         Vector3 centre = (left.transform.position + right.transform.position) * 0.5f;
         centre += transform.forward * detectionForwardOffset;
@@ -96,7 +133,17 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
 
         Transform trailer = FindTrailer();
         if (trailer == null)
+        {
+            Debug.LogError(
+                "TrailerUnloader DIAGNOSTIC: Could not find trailer under spawned lorry. SpawnedLorry=" +
+                (lorryArrival.SpawnedLorry != null ? lorryArrival.SpawnedLorry.name : "NULL") + ".", this);
             return;
+        }
+
+        Debug.Log(
+            "TrailerUnloader DIAGNOSTIC: OverlapBox found " + count +
+            " collider(s). Trailer='" + GetPath(trailer) + "'. Box centre=" +
+            centre.ToString("F2") + ", size=" + detectionBoxSize.ToString("F2") + ".", this);
 
         Rigidbody candidate = null;
         float nearestDistance = float.MaxValue;
@@ -108,7 +155,16 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
                 continue;
 
             Rigidbody body = hit.attachedRigidbody;
-            if (body == null || !body.transform.IsChildOf(trailer))
+            bool colliderInTrailer = hit.transform.IsChildOf(trailer);
+            bool bodyInTrailer = body != null && body.transform.IsChildOf(trailer);
+
+            Debug.Log(
+                "TrailerUnloader DIAGNOSTIC: Hit collider='" + GetPath(hit.transform) +
+                "', attachedRigidbody=" + (body != null ? GetPath(body.transform) : "NULL") +
+                ", colliderInTrailer=" + colliderInTrailer +
+                ", bodyInTrailer=" + bodyInTrailer + ".", hit);
+
+            if (body == null || !bodyInTrailer)
                 continue;
 
             if (releasedPallets.Contains(body.GetInstanceID()))
@@ -123,10 +179,13 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         }
 
         if (candidate == null)
+        {
+            Debug.LogWarning(
+                "TrailerUnloader DIAGNOSTIC: No unreleased trailer Rigidbody was found inside the detection box. " +
+                "The overlap count above shows exactly what the box is touching.", this);
             return;
+        }
 
-        // Detach while preserving the exact world pose so the pallet can leave
-        // the stationary trailer without inheriting its transform hierarchy.
         candidate.transform.SetParent(null, true);
         candidate.velocity = Vector3.zero;
         candidate.angularVelocity = Vector3.zero;
@@ -139,7 +198,7 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         releasedPallets.Add(candidate.GetInstanceID());
         nextReleaseTime = Time.time + liftReleaseCooldown;
 
-        Debug.Log("WarehouseTrailerPalletUnloader: Released pallet " + candidate.name + " for forklift unloading.", candidate);
+        Debug.Log("TrailerUnloader: Successfully released pallet '" + candidate.name + "'.", candidate);
     }
 
     private Transform FindTrailer()
@@ -155,6 +214,20 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         }
 
         return null;
+    }
+
+    private static string GetPath(Transform item)
+    {
+        if (item == null)
+            return "NULL";
+
+        string path = item.name;
+        while (item.parent != null)
+        {
+            item = item.parent;
+            path = item.name + "/" + path;
+        }
+        return path;
     }
 
     private void OnDrawGizmosSelected()
