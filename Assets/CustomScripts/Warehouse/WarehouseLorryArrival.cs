@@ -149,9 +149,10 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        // Cargo is already configured as kinematic in the trailer prefab.
-        // Do not modify cargo physics before the lorry has driven its route.
-        // The cargo-lock routine runs once the lorry has parked.
+        // Physically secure each pallet to the trailer with a FixedJoint.
+        // Pallets remain dynamic; we do not freeze their Rigidbody.
+        AttachCargoToTrailer(trailerBody);
+
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Spawned tractor '" + tractorPrefab.name +
@@ -220,6 +221,47 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
     {
         if (truckController != null)
             truckController.StopDriving();
+    }
+
+    private void AttachCargoToTrailer(Rigidbody trailerBody)
+    {
+        if (spawnedTrailer == null || trailerBody == null)
+            return;
+
+        Transform load = FindChild(spawnedTrailer.transform, "Load");
+        if (load == null)
+        {
+            Debug.LogWarning("WarehouseLorryArrival: No child named 'Load' found. Cargo joints were not created.", spawnedTrailer);
+            return;
+        }
+
+        int attachedCount = 0;
+        foreach (Transform child in load)
+        {
+            Rigidbody palletBody = child.GetComponent<Rigidbody>();
+            if (palletBody == null)
+            {
+                Debug.LogWarning("WarehouseLorryArrival: Load child '" + child.name + "' has no Rigidbody on its root; skipping it.", child);
+                continue;
+            }
+
+            palletBody.isKinematic = false;
+            palletBody.useGravity = true;
+            palletBody.interpolation = RigidbodyInterpolation.Interpolate;
+            palletBody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+
+            FixedJoint cargoJoint = child.GetComponent<FixedJoint>();
+            if (cargoJoint == null)
+                cargoJoint = child.gameObject.AddComponent<FixedJoint>();
+
+            cargoJoint.connectedBody = trailerBody;
+            cargoJoint.enableCollision = false;
+            cargoJoint.breakForce = Mathf.Infinity;
+            cargoJoint.breakTorque = Mathf.Infinity;
+            attachedCount++;
+        }
+
+        Debug.Log("WarehouseLorryArrival: Attached " + attachedCount + " pallet(s) to trailer using FixedJoints.", this);
     }
 
     private static Transform FindChild(Transform root, string exactName)
