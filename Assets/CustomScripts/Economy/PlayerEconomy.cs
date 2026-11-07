@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 /// <summary>
-/// Persistent GBP wallet shared by jobs and businesses. Add this component to
-/// one scene object; it survives scene changes and saves every balance change.
+/// Persistent GBP wallet shared by jobs and businesses. It is bootstrapped
+/// automatically, survives scene changes and saves every balance change.
+/// Currency is stored as integer pence to avoid floating-point money errors.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class PlayerEconomy : MonoBehaviour
@@ -32,10 +34,13 @@ public sealed class PlayerEconomy : MonoBehaviour
     public event Action<float> BalanceChanged;
 
     [SerializeField, Min(0f)] private float startingBalance = 250f;
-    [SerializeField, Min(0f)] private float balance;
     [SerializeField] private bool resetSavedBalanceOnAwake;
 
+    private long balancePence;
     private readonly List<Transaction> transactions = new List<Transaction>();
+
+    public float Balance => balancePence / 100f;
+    public IReadOnlyList<Transaction> Transactions => transactions;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void EnsureCreated()
@@ -46,9 +51,6 @@ public sealed class PlayerEconomy : MonoBehaviour
         GameObject economyObject = new GameObject("PlayerEconomy");
         economyObject.AddComponent<PlayerEconomy>();
     }
-
-    public float Balance => balance;
-    public IReadOnlyList<Transaction> Transactions => transactions;
 
     private void Awake()
     {
@@ -70,12 +72,14 @@ public sealed class PlayerEconomy : MonoBehaviour
         }
         else if (PlayerPrefs.HasKey(BalanceKey))
         {
-            balance = Mathf.Max(0f, PlayerPrefs.GetFloat(BalanceKey));
+            long.TryParse(PlayerPrefs.GetString(BalanceKey, "0"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out balancePence);
+            balancePence = Math.Max(0L, balancePence);
             LoadTransactions();
         }
         else
         {
-            balance = startingBalance;
+            balancePence = ToPence(startingBalance);
             Save();
         }
 
@@ -84,29 +88,25 @@ public sealed class PlayerEconomy : MonoBehaviour
 
     public void AddMoney(float amount, string description)
     {
-        if (amount <= 0f)
+        long pence = ToPence(amount);
+        if (pence <= 0L)
         {
             Debug.LogWarning("PlayerEconomy: AddMoney requires a positive amount.", this);
             return;
         }
 
-        balance += amount;
-        RecordTransaction(amount, description);
+        balancePence += pence;
+        RecordTransaction(pence / 100f, description);
     }
 
     public bool TrySpendMoney(float amount, string description)
     {
-        if (amount <= 0f)
-        {
-            Debug.LogWarning("PlayerEconomy: TrySpendMoney requires a positive amount.", this);
-            return false;
-        }
-
-        if (balance < amount)
+        long pence = ToPence(amount);
+        if (pence <= 0L || balancePence < pence)
             return false;
 
-        balance -= amount;
-        RecordTransaction(-amount, description);
+        balancePence -= pence;
+        RecordTransaction(-pence / 100f, description);
         return true;
     }
 
@@ -116,7 +116,7 @@ public sealed class PlayerEconomy : MonoBehaviour
         {
             description = string.IsNullOrWhiteSpace(description) ? "Transaction" : description,
             amount = amount,
-            balanceAfter = balance,
+            balanceAfter = Balance,
             timestampUtc = DateTime.UtcNow.ToString("o")
         });
 
@@ -124,13 +124,19 @@ public sealed class PlayerEconomy : MonoBehaviour
             transactions.RemoveRange(MaximumTransactions, transactions.Count - MaximumTransactions);
 
         Save();
-        BalanceChanged?.Invoke(balance);
+        BalanceChanged?.Invoke(Balance);
+    }
+
+    private static long ToPence(float pounds)
+    {
+        return (long)Math.Round(pounds * 100d, MidpointRounding.AwayFromZero);
     }
 
     private void Save()
     {
-        PlayerPrefs.SetFloat(BalanceKey, balance);
-        PlayerPrefs.SetString(TransactionsKey, JsonUtility.ToJson(new TransactionList { items = transactions }));
+        PlayerPrefs.SetString(BalanceKey, balancePence.ToString(CultureInfo.InvariantCulture));
+        PlayerPrefs.SetString(TransactionsKey,
+            JsonUtility.ToJson(new TransactionList { items = transactions }));
         PlayerPrefs.Save();
     }
 
@@ -162,7 +168,7 @@ public sealed class PlayerEconomy : MonoBehaviour
             fontStyle = FontStyle.Bold
         };
         style.normal.textColor = Color.white;
-        GUI.Label(new Rect(Screen.width - 250f, 15f, 230f, 34f), "£" + balance.ToString("N2"), style);
+        GUI.Label(new Rect(Screen.width - 250f, 15f, 230f, 34f), "£" + Balance.ToString("N2"), style);
     }
 
     private void OnDestroy()
