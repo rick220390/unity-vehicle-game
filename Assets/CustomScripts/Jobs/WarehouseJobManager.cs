@@ -72,6 +72,17 @@ public sealed class WarehouseJobManager : MonoBehaviour
         spawnedForklift = Instantiate(forkliftPrefab, forkliftSpawnPoint.position, forkliftSpawnPoint.rotation);
         spawnedForklift.name = forkliftPrefab.name + "_WarehouseShift";
 
+        ForkliftController spawnedController = spawnedForklift.GetComponent<ForkliftController>();
+        if (spawnedController == null)
+            spawnedController = spawnedForklift.GetComponentInChildren<ForkliftController>();
+
+        WarehousePalletStorageSlot[] storageSlots = FindObjectsOfType<WarehousePalletStorageSlot>(true);
+        foreach (WarehousePalletStorageSlot slot in storageSlots)
+            slot.SetForklift(spawnedController);
+
+        if (spawnedController == null)
+            Debug.LogError("WarehouseJobManager: The spawned forklift prefab has no ForkliftController.", spawnedForklift);
+
         // The prefab carries the WSM controllers and the existing enter/exit script.
         // Disable player input until the player enters through ForkliftPlayerInteractor.
         ForkliftPlayerInput forkliftInput = spawnedForklift.GetComponent<ForkliftPlayerInput>();
