@@ -154,32 +154,44 @@ public class WarehouseLorryArrival : MonoBehaviour
         spawnedLorry.name = selectedLorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
 
-        // Align the lowest rendered part of the complete lorry/trailer (normally
-        // the tyre bottoms) with the ground, compensating for the prefab pivot.
-        Renderer[] renderers = spawnedLorry.GetComponentsInChildren<Renderer>(true);
-        bool foundRenderer = false;
-        Bounds vehicleBounds = new Bounds(spawnedLorry.transform.position, Vector3.zero);
-        foreach (Renderer renderer in renderers)
+        // Ground the vehicle using its tyre meshes, not the bounds of the
+        // complete loaded truck. Cargo, pallets and trailer contents can extend
+        // below the tyre bounds and would incorrectly lift the whole vehicle.
+        ResolveWheelMeshes();
+        float lowestWheelY = float.PositiveInfinity;
+        foreach (Transform wheel in wheelMeshes)
         {
-            if (renderer == null)
+            if (wheel == null)
                 continue;
 
-            if (!foundRenderer)
+            Renderer[] wheelRenderers = wheel.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer wheelRenderer in wheelRenderers)
             {
-                vehicleBounds = renderer.bounds;
-                foundRenderer = true;
-            }
-            else
-            {
-                vehicleBounds.Encapsulate(renderer.bounds);
+                if (wheelRenderer != null)
+                    lowestWheelY = Mathf.Min(lowestWheelY, wheelRenderer.bounds.min.y);
             }
         }
 
-        if (foundRenderer)
+        if (float.IsPositiveInfinity(lowestWheelY))
+        {
+            Debug.LogWarning("WarehouseLorryArrival: Could not find renderers on the named wheel meshes. Falling back to the full vehicle bounds for grounding.", this);
+            Renderer[] renderers = spawnedLorry.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                if (renderer != null)
+                    lowestWheelY = Mathf.Min(lowestWheelY, renderer.bounds.min.y);
+            }
+        }
+
+        if (!float.IsPositiveInfinity(lowestWheelY))
         {
             Vector3 alignedPosition = spawnedLorry.transform.position;
-            alignedPosition.y += groundY - vehicleBounds.min.y;
+            alignedPosition.y += groundY - lowestWheelY;
             spawnedLorry.transform.position = alignedPosition;
+        }
+        else
+        {
+            Debug.LogError("WarehouseLorryArrival: No renderers found to calculate the lorry ground height.", this);
         }
 
         lockedLorryY = spawnedLorry.transform.position.y;
@@ -195,7 +207,6 @@ public class WarehouseLorryArrival : MonoBehaviour
             body.angularVelocity = Vector3.zero;
         }
 
-        ResolveWheelMeshes();
         arrivalRoutine = StartCoroutine(DriveRoute());
     }
 
