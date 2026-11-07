@@ -149,9 +149,14 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
+        // Secure every cargo Rigidbody immediately. Cargo must remain fixed to
+        // the trailer throughout the journey; the forklift unloader releases
+        // one pallet root at a time after the lorry has parked.
+        LockCargoForUnloading();
+
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Spawned tractor '" + tractorPrefab.name +
-                      "' with trailer '" + selectedTrailer.name + "' and connected the fifth wheel.", this);
+                      "' with trailer '" + selectedTrailer.name + "', connected the fifth wheel and secured trailer cargo.", this);
 
         arrivalRoutine = StartCoroutine(DriveRoute());
     }
