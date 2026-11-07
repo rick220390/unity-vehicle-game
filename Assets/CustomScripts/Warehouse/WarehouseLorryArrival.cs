@@ -23,7 +23,6 @@ public class WarehouseLorryArrival : MonoBehaviour
     [Header("Lorry prefab")]
     [SerializeField] private GameObject lorryPrefab;
     [SerializeField] private Transform spawnPoint;
-    [SerializeField] private bool spawnOnStart = true;
 
     [Header("Arrival route")]
     [Tooltip("Add route points in travel order. Use forward points to approach the bay, then a reverse point for the final backing manoeuvre.")]
@@ -86,12 +85,6 @@ public class WarehouseLorryArrival : MonoBehaviour
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
         }
-    }
-
-    private void Start()
-    {
-        if (spawnOnStart)
-            StartArrival();
     }
 
     public void StartArrival()
