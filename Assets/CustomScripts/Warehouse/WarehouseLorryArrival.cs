@@ -58,13 +58,8 @@ public class WarehouseLorryArrival : MonoBehaviour
         "WheelFL1", "WheelFL2", "WheelFR1", "WheelF2"
     };
 
-    // Some model/pallet scripts initialise their Rigidbody settings in Start().
-    // Re-apply the cargo physics state in LateUpdate so those initialisers cannot
-    // turn gravity back on after the lorry has been spawned.
     private void LateUpdate()
     {
-        // Lock the load only while the lorry is moving. Once parked, cargo
-        // rigidbodies are released for the forklift/unloading interaction.
         if (!hasArrived)
             EnforceLorryRigidbodies();
     }
@@ -115,16 +110,12 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry != null)
             Destroy(spawnedLorry);
 
-        // Support either a Project prefab or a complete lorry already placed
-        // in the scene. If the source is a scene object, hide it before cloning
-        // so only the spawned delivery lorry is visible during play.
         bool sourceIsSceneObject = lorryPrefab.scene.IsValid();
 
-        // Preserve the original scene lorry's exact world height so it remains
-        // aligned with the loading-bay floor. Project prefabs use Spawn Point Y.
-        lockedLorryY = sourceIsSceneObject
-            ? lorryPrefab.transform.position.y
-            : spawnPoint.position.y;
+        // Always take the delivery vehicle's height from the dedicated spawn
+        // marker. A scene source object may have been left raised for editing;
+        // copying its Y caused the entire lorry and trailer to float above the bay.
+        lockedLorryY = spawnPoint.position.y;
 
         if (sourceIsSceneObject)
             lorryPrefab.SetActive(false);
@@ -134,7 +125,6 @@ public class WarehouseLorryArrival : MonoBehaviour
         spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
 
-        // This transform-driven vehicle must not have physics gravity fighting the route.
         Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
         foreach (Rigidbody body in bodies)
         {
@@ -146,7 +136,6 @@ public class WarehouseLorryArrival : MonoBehaviour
         }
 
         ResolveWheelMeshes();
-
         arrivalRoutine = StartCoroutine(DriveRoute());
     }
 
@@ -196,8 +185,6 @@ public class WarehouseLorryArrival : MonoBehaviour
                 yield break;
             }
 
-            // The waypoint rotation is authoritative for final alignment.
-            // Its blue Z arrow determines exactly which way the lorry faces.
             Vector3 finalPosition = point.target.position;
             finalPosition.y = lockedLorryY;
             spawnedLorry.transform.position = finalPosition;
@@ -230,11 +217,6 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry == null)
             return;
 
-        // Keep the complete trailer load fixed while parked. Making every
-        // pallet Rigidbody dynamic at once causes tightly packed/stacked
-        // cargo colliders to push against one another and explode outward.
-        // Individual pallets will be made dynamic later by the forklift
-        // pickup interaction, one at a time.
         Transform trailer = FindChildByName(spawnedLorry.transform, "BigTruck0102Trailer");
         if (trailer == null)
         {
@@ -282,11 +264,7 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry == null)
             return;
 
-        // If wheel references were assigned in the scene inspector, they belong
-        // to the scene and cannot reference the newly-instantiated prefab. Find
-        // the corresponding child meshes by their exact model names instead.
         wheelMeshes.Clear();
-
         Transform[] children = spawnedLorry.GetComponentsInChildren<Transform>(true);
         foreach (string wheelName in WheelNames)
         {
