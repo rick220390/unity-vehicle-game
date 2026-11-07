@@ -14,6 +14,12 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     [SerializeField] private BoxCollider triggerZone;
     [SerializeField] private Transform placementPoint;
 
+    [Header("Placement confirmation")]
+    [Tooltip("The pallet must be this close to the shelf placement point before it can count as stored.")]
+    [SerializeField, Min(0.01f)] private float placementPositionTolerance = 0.25f;
+    [Tooltip("The pallet must be approximately aligned with the shelf placement point.")]
+    [SerializeField, Range(1f, 45f)] private float placementRotationTolerance = 15f;
+
     [Header("Forklift reference")]
     [SerializeField] private ForkliftController forklift;
 
@@ -133,6 +139,14 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
             return;
         }
 
+        // Merely hovering a pallet over the shelf is not a placement. It must
+        // first be lowered to the configured rack position and aligned there.
+        if (!IsAtPlacementPoint(candidate))
+        {
+            stableTimer = 0f;
+            return;
+        }
+
         if (!IsForkliftClearOf(candidate))
         {
             stableTimer = 0f;
@@ -149,6 +163,16 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         stableTimer += Time.deltaTime;
         if (stableTimer >= stableTimeRequired)
             StoreCandidate();
+    }
+
+    private bool IsAtPlacementPoint(Rigidbody pallet)
+    {
+        if (pallet == null || placementPoint == null)
+            return false;
+
+        float distance = Vector3.Distance(pallet.position, placementPoint.position);
+        float angle = Quaternion.Angle(pallet.rotation, placementPoint.rotation);
+        return distance <= placementPositionTolerance && angle <= placementRotationTolerance;
     }
 
     private void TrySelectCandidate(Collider other)
@@ -193,8 +217,6 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         float leftForkY = forklift.fork_L.transform.position.y;
         float rightForkY = forklift.fork_R.transform.position.y;
 
-        // Use actual fork movement as well as the controller input. This still
-        // works if the input value is already at its upper limit.
         bool lifting = liftInput > previousLiftInput + liftInputThreshold ||
                        leftForkY > previousLeftForkY + 0.0001f ||
                        rightForkY > previousRightForkY + 0.0001f;
@@ -221,8 +243,6 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     {
         Bounds palletBounds = GetPalletBounds(pallet);
 
-        // The fork component transforms are often located back at their mounting
-        // points, not at the fork tips. Test the actual fork collider bounds instead.
         float minForkY = palletBounds.min.y - forkInsertionBelowPallet;
         float maxForkY = palletBounds.min.y + forkInsertionAbovePallet;
         Bounds insertionBand = new Bounds(
@@ -248,7 +268,6 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
                 return true;
         }
 
-        // Fallback for fork models that do not have colliders on the fork parts.
         return insertionBand.Contains(forkRoot.position);
     }
 
@@ -336,7 +355,6 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         stableTimer = 0f;
     }
 
-    /// <summary>Allows another system to clear this slot when it retrieves the pallet.</summary>
     public void ClearStoredPallet(Rigidbody pallet)
     {
         if (!occupied || candidate != pallet)
