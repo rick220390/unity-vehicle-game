@@ -108,7 +108,7 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
                 continue;
 
             Rigidbody body = hit.attachedRigidbody;
-            if (body == null || body.isKinematic || !body.transform.IsChildOf(trailer))
+            if (body == null || !body.transform.IsChildOf(trailer))
                 continue;
 
             if (releasedPallets.Contains(body.GetInstanceID()))
