@@ -149,10 +149,9 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        // Secure every cargo Rigidbody immediately. Cargo must remain fixed to
-        // the trailer throughout the journey; the forklift unloader releases
-        // one pallet root at a time after the lorry has parked.
-        LockCargoForUnloading();
+        // Cargo is already configured as kinematic in the trailer prefab.
+        // Do not modify cargo physics before the lorry has driven its route.
+        // The cargo-lock routine runs once the lorry has parked.
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Spawned tractor '" + tractorPrefab.name +
