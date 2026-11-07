@@ -20,8 +20,9 @@ public class WarehouseLorryArrival : MonoBehaviour
         public bool reverse;
     }
 
-    [Header("Lorry prefab")]
-    [SerializeField] private GameObject lorryPrefab;
+    [Header("Random delivery lorries")]
+    [Tooltip("Add each fully loaded delivery-truck prefab here. One valid entry is selected at random each time a warehouse job starts.")]
+    [SerializeField] private GameObject[] lorryPrefabs;
     [SerializeField] private Transform spawnPoint;
 
     [Header("Arrival route")]
@@ -90,11 +91,29 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         hasArrived = false;
 
-        if (lorryPrefab == null)
+        if (lorryPrefabs == null || lorryPrefabs.Length == 0)
         {
-            Debug.LogError("WarehouseLorryArrival: Assign the BigTruck01_Open prefab.", this);
+            Debug.LogError("WarehouseLorryArrival: Add at least one loaded delivery lorry prefab to the Random Delivery Lorries array.", this);
             return;
         }
+
+        // Ignore empty Inspector slots so one unassigned entry cannot break delivery spawning.
+        List<GameObject> availablePrefabs = new List<GameObject>();
+        foreach (GameObject prefab in lorryPrefabs)
+        {
+            if (prefab != null)
+                availablePrefabs.Add(prefab);
+        }
+
+        if (availablePrefabs.Count == 0)
+        {
+            Debug.LogError("WarehouseLorryArrival: The Random Delivery Lorries array contains no assigned prefabs.", this);
+            return;
+        }
+
+        GameObject selectedLorryPrefab = availablePrefabs[Random.Range(0, availablePrefabs.Count)];
+        if (logArrival)
+            Debug.Log("WarehouseLorryArrival: Selected delivery load: " + selectedLorryPrefab.name, this);
 
         if (spawnPoint == null)
         {
@@ -111,7 +130,7 @@ public class WarehouseLorryArrival : MonoBehaviour
         if (spawnedLorry != null)
             Destroy(spawnedLorry);
 
-        bool sourceIsSceneObject = lorryPrefab.scene.IsValid();
+        bool sourceIsSceneObject = selectedLorryPrefab.scene.IsValid();
 
         // Raycast the actual ground below the spawn marker. The spawn marker's
         // Y is not necessarily the vehicle's ground height, and the model pivot
@@ -128,11 +147,11 @@ public class WarehouseLorryArrival : MonoBehaviour
         }
 
         if (sourceIsSceneObject)
-            lorryPrefab.SetActive(false);
+            selectedLorryPrefab.SetActive(false);
 
         Vector3 spawnPosition = new Vector3(spawnPoint.position.x, groundY, spawnPoint.position.z);
-        spawnedLorry = Instantiate(lorryPrefab, spawnPosition, spawnPoint.rotation);
-        spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
+        spawnedLorry = Instantiate(selectedLorryPrefab, spawnPosition, spawnPoint.rotation);
+        spawnedLorry.name = selectedLorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
 
         // Align the lowest rendered part of the complete lorry/trailer (normally
