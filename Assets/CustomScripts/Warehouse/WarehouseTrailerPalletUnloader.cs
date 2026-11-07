@@ -196,7 +196,6 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
                 continue;
 
             cargoJoint.connectedBody = null;
-            cargoJoint.enabled = false;
             Destroy(cargoJoint);
         }
 
