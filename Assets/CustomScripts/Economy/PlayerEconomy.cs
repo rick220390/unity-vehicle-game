@@ -42,7 +42,7 @@ public sealed class PlayerEconomy : MonoBehaviour
     public float Balance => balancePence / 100f;
     public IReadOnlyList<Transaction> Transactions => transactions;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureCreated()
     {
         if (Instance != null)
