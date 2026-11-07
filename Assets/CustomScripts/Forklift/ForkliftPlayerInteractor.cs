@@ -53,16 +53,22 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (vehicleInput == null) vehicleInput = GetComponent<WSMVehiclePlayerInput>();
         if (forkliftInput == null) forkliftInput = GetComponent<ForkliftPlayerInput>();
 
-        // The forklift is instantiated at job start, so Inspector references
-        // to scene-only objects are not reliable on the spawned copy. Resolve
-        // the camera from the active scene when it was not explicitly assigned.
+        // A scene forklift may already have disabled the shared WSM camera
+        // before this runtime-spawned forklift executes Awake. FindObjectsOfType
+        // does not return components on inactive GameObjects, so search loaded
+        // scene objects including inactive ones.
         if (forkliftCamera == null)
         {
-#if UNITY_2023_1_OR_NEWER
-            forkliftCamera = FindFirstObjectByType<WSMVehicleCamera>();
-#else
-            forkliftCamera = FindObjectOfType<WSMVehicleCamera>();
-#endif
+            WSMVehicleCamera[] cameras = Resources.FindObjectsOfTypeAll<WSMVehicleCamera>();
+            foreach (WSMVehicleCamera candidate in cameras)
+            {
+                if (candidate == null || !candidate.gameObject.scene.IsValid() ||
+                    !candidate.gameObject.scene.isLoaded)
+                    continue;
+
+                forkliftCamera = candidate;
+                break;
+            }
         }
 
         if (forkliftCamera != null)
