@@ -112,18 +112,57 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         bool sourceIsSceneObject = lorryPrefab.scene.IsValid();
 
-        // Always take the delivery vehicle's height from the dedicated spawn
-        // marker. A scene source object may have been left raised for editing;
-        // copying its Y caused the entire lorry and trailer to float above the bay.
-        lockedLorryY = spawnPoint.position.y;
+        // Raycast the actual ground below the spawn marker. The spawn marker's
+        // Y is not necessarily the vehicle's ground height, and the model pivot
+        // may be well above or below the bottoms of its wheels.
+        float groundY = spawnPoint.position.y;
+        Ray groundRay = new Ray(spawnPoint.position + Vector3.up * 100f, Vector3.down);
+        if (Physics.Raycast(groundRay, out RaycastHit groundHit, 500f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        {
+            groundY = groundHit.point.y;
+        }
+        else
+        {
+            Debug.LogWarning("WarehouseLorryArrival: No ground was found below the Spawn Point. Check that the loading-yard ground has a collider; using the marker height as fallback.", this);
+        }
 
         if (sourceIsSceneObject)
             lorryPrefab.SetActive(false);
 
-        Vector3 spawnPosition = new Vector3(spawnPoint.position.x, lockedLorryY, spawnPoint.position.z);
+        Vector3 spawnPosition = new Vector3(spawnPoint.position.x, groundY, spawnPoint.position.z);
         spawnedLorry = Instantiate(lorryPrefab, spawnPosition, spawnPoint.rotation);
         spawnedLorry.name = lorryPrefab.name + "_WarehouseDelivery";
         spawnedLorry.SetActive(true);
+
+        // Align the lowest rendered part of the complete lorry/trailer (normally
+        // the tyre bottoms) with the ground, compensating for the prefab pivot.
+        Renderer[] renderers = spawnedLorry.GetComponentsInChildren<Renderer>(true);
+        bool foundRenderer = false;
+        Bounds vehicleBounds = new Bounds(spawnedLorry.transform.position, Vector3.zero);
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer == null)
+                continue;
+
+            if (!foundRenderer)
+            {
+                vehicleBounds = renderer.bounds;
+                foundRenderer = true;
+            }
+            else
+            {
+                vehicleBounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (foundRenderer)
+        {
+            Vector3 alignedPosition = spawnedLorry.transform.position;
+            alignedPosition.y += groundY - vehicleBounds.min.y;
+            spawnedLorry.transform.position = alignedPosition;
+        }
+
+        lockedLorryY = spawnedLorry.transform.position.y;
 
         Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
         foreach (Rigidbody body in bodies)
