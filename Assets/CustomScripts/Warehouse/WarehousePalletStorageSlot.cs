@@ -46,6 +46,17 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
     public bool IsOccupied => occupied;
     public Rigidbody StoredPallet => occupied ? candidate : null;
 
+    public void SetForklift(ForkliftController value)
+    {
+        forklift = value;
+        if (forklift == null)
+            return;
+
+        previousLiftInput = forklift.ForksVertical;
+        if (forklift.fork_L != null) previousLeftForkY = forklift.fork_L.transform.position.y;
+        if (forklift.fork_R != null) previousRightForkY = forklift.fork_R.transform.position.y;
+    }
+
     private void Reset()
     {
         triggerZone = GetComponent<BoxCollider>();
@@ -289,6 +300,9 @@ public sealed class WarehousePalletStorageSlot : MonoBehaviour
         if (forklift != null && forklift.fork_R != null) previousRightForkY = forklift.fork_R.transform.position.y;
 
         Debug.Log("WarehousePalletStorageSlot: Stored pallet '" + candidate.name + "' in slot '" + name + "'.", candidate);
+        WarehouseJobManager jobManager = FindObjectOfType<WarehouseJobManager>();
+        if (jobManager != null)
+            jobManager.RegisterPalletStored(candidate);
     }
 
     private void ReleaseStoredPallet()
