@@ -156,14 +156,15 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
                 continue;
 
             Rigidbody hitBody = hit.attachedRigidbody;
-            bool colliderInTrailer = hit.transform.IsChildOf(trailer);
-            Rigidbody body = colliderInTrailer ? FindTopLevelCargoBody(hit.transform, trailer) : null;
+            Transform load = FindLoadContainer(trailer);
+            bool colliderInLoad = load != null && hit.transform.IsChildOf(load);
+            Rigidbody body = colliderInLoad ? FindTopLevelCargoBody(hit.transform, load) : null;
 
             Debug.Log(
                 "TrailerUnloader DIAGNOSTIC: Hit collider='" + GetPath(hit.transform) +
                 "', attachedRigidbody=" + (hitBody != null ? GetPath(hitBody.transform) : "NULL") +
                 ", selectedPalletBody=" + (body != null ? GetPath(body.transform) : "NULL") +
-                ", colliderInTrailer=" + colliderInTrailer + ".", hit);
+                ", colliderInLoad=" + colliderInLoad + ".", hit);
 
             if (body == null)
                 continue;
@@ -202,15 +203,15 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
         Debug.Log("TrailerUnloader: Successfully released pallet '" + candidate.name + "'.", candidate);
     }
 
-    // Returns the outermost cargo Rigidbody between the hit collider and
-    // the trailer root. This deliberately selects the pallet Rigidbody rather
-    // than a Rigidbody on an individual box nested under that pallet.
-    private static Rigidbody FindTopLevelCargoBody(Transform hitTransform, Transform trailerRoot)
+    // Returns the outermost Rigidbody between the hit collider and the
+    // dedicated Load container, so the pallet root is selected and the
+    // trailer Rigidbody can never be returned.
+    private static Rigidbody FindTopLevelCargoBody(Transform hitTransform, Transform loadRoot)
     {
         Rigidbody selected = null;
         Transform current = hitTransform;
 
-        while (current != null && current != trailerRoot)
+        while (current != null && current != loadRoot)
         {
             Rigidbody body = current.GetComponent<Rigidbody>();
             if (body != null)
@@ -219,7 +220,19 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
             current = current.parent;
         }
 
-        return selected;
+        return current == loadRoot ? selected : null;
+    }
+
+    private static Transform FindLoadContainer(Transform trailerRoot)
+    {
+        if (trailerRoot == null)
+            return null;
+
+        foreach (Transform child in trailerRoot.GetComponentsInChildren<Transform>(true))
+            if (child.name == "Load")
+                return child;
+
+        return null;
     }
 
     private Transform FindTrailer()
