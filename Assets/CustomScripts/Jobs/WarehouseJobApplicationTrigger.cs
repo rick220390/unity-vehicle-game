@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -14,6 +15,7 @@ public sealed class WarehouseJobApplicationTrigger : MonoBehaviour
     [SerializeField] private KeyCode interactKey = KeyCode.E;
 
     private Transform player;
+    private readonly HashSet<Collider> playerColliders = new HashSet<Collider>();
     private bool playerInTrigger;
 
     private void Awake()
@@ -51,14 +53,26 @@ public sealed class WarehouseJobApplicationTrigger : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player") || other.transform.root.CompareTag("Player"))
+        if (BelongsToPlayer(other))
+        {
+            playerColliders.Add(other);
             playerInTrigger = true;
+        }
     }
 
     private void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Player") || other.transform.root.CompareTag("Player"))
-            playerInTrigger = false;
+        if (BelongsToPlayer(other))
+        {
+            playerColliders.Remove(other);
+            playerInTrigger = playerColliders.Count > 0;
+        }
+    }
+
+    private static bool BelongsToPlayer(Collider other)
+    {
+        return other != null &&
+               (other.CompareTag("Player") || other.transform.root.CompareTag("Player"));
     }
 
     private void FindPlayer()
