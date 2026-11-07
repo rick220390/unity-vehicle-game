@@ -18,6 +18,17 @@ public sealed class WarehouseJobManager : MonoBehaviour
     [SerializeField] private Transform playerReturnPoint;
     [SerializeField] private WarehouseLorryArrival lorryArrival;
 
+    [Header("Warehouse entrance door")]
+    [Tooltip("The scene door Transform. Its pivot must be positioned at the hinge.")]
+    [SerializeField] private Transform warehouseDoor;
+    [Tooltip("Local-space angle to rotate from the closed position when the job starts.")]
+    [SerializeField] private Vector3 doorOpenEuler = new Vector3(0f, 90f, 0f);
+    [SerializeField, Min(0.05f)] private float doorMoveDuration = 1.25f;
+
+    private Quaternion doorClosedLocalRotation;
+    private Quaternion doorOpenLocalRotation;
+    private Coroutine doorMotion;
+
     [Header("Shift settings")]
     [SerializeField, Min(1)] private int requiredPallets = 9;
     [SerializeField, Min(0f)] private float completionPayment = 120f;
@@ -32,6 +43,16 @@ public sealed class WarehouseJobManager : MonoBehaviour
     public int RequiredPallets => requiredPallets;
     public float CompletionPayment => completionPayment;
     public string JobTitle => jobTitle;
+
+    private void Awake()
+    {
+        if (warehouseDoor != null)
+        {
+            doorClosedLocalRotation = warehouseDoor.localRotation;
+            doorOpenLocalRotation = doorClosedLocalRotation * Quaternion.Euler(doorOpenEuler);
+            warehouseDoor.localRotation = doorClosedLocalRotation;
+        }
+    }
 
     public bool BeginWarehouseJob()
     {
@@ -130,6 +151,7 @@ public sealed class WarehouseJobManager : MonoBehaviour
 
         lorryArrival.RemoveLorry();
         State = JobState.Active;
+        SetWarehouseDoorOpen(true);
         lorryArrival.StartArrival();
 
         Debug.Log("WarehouseJobManager: Shift started. Store " + requiredPallets + " pallets.", this);
@@ -190,6 +212,44 @@ public sealed class WarehouseJobManager : MonoBehaviour
         // player completed the required count before unloading every pallet.
         if (lorryArrival != null)
             lorryArrival.RemoveLorry();
+
+        // The player has been returned outside, so close and lock the entrance.
+        SetWarehouseDoorOpen(false);
+    }
+
+    private void SetWarehouseDoorOpen(bool open)
+    {
+        if (warehouseDoor == null)
+        {
+            Debug.LogWarning("WarehouseJobManager: Warehouse Door is not assigned; the entrance cannot be animated.", this);
+            return;
+        }
+
+        if (doorMotion != null)
+            StopCoroutine(doorMotion);
+
+        Quaternion target = open ? doorOpenLocalRotation : doorClosedLocalRotation;
+        doorMotion = StartCoroutine(AnimateWarehouseDoor(target));
+    }
+
+    private System.Collections.IEnumerator AnimateWarehouseDoor(Quaternion target)
+    {
+        Quaternion start = warehouseDoor.localRotation;
+        float elapsed = 0f;
+        float duration = Mathf.Max(0.05f, doorMoveDuration);
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            // Smooth start/stop rather than a mechanical snap.
+            t = t * t * (3f - 2f * t);
+            warehouseDoor.localRotation = Quaternion.Slerp(start, target, t);
+            yield return null;
+        }
+
+        warehouseDoor.localRotation = target;
+        doorMotion = null;
     }
 
     private void OnGUI()
