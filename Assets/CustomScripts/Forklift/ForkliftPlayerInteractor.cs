@@ -53,6 +53,18 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (vehicleInput == null) vehicleInput = GetComponent<WSMVehiclePlayerInput>();
         if (forkliftInput == null) forkliftInput = GetComponent<ForkliftPlayerInput>();
 
+        // The forklift is instantiated at job start, so Inspector references
+        // to scene-only objects are not reliable on the spawned copy. Resolve
+        // the camera from the active scene when it was not explicitly assigned.
+        if (forkliftCamera == null)
+        {
+#if UNITY_2023_1_OR_NEWER
+            forkliftCamera = FindFirstObjectByType<WSMVehicleCamera>();
+#else
+            forkliftCamera = FindObjectOfType<WSMVehicleCamera>();
+#endif
+        }
+
         if (forkliftCamera != null)
         {
             if (forkliftCameraInput == null)
@@ -98,7 +110,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (vehicleController == null || vehicleInput == null || forkliftInput == null)
             Debug.LogError("ForkliftPlayerInteractor: One or more WSM forklift components are missing.", this);
         if (forkliftCamera == null)
-            Debug.LogError("ForkliftPlayerInteractor: Assign the scene's WSMVehicleCamera.", this);
+            Debug.LogError("ForkliftPlayerInteractor: No WSMVehicleCamera was found. Add the camera to the scene and ensure its GameObject is active before the job starts.", this);
     }
 
     private void Update()
