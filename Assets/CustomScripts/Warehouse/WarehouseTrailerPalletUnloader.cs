@@ -204,17 +204,11 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
 
     private Transform FindTrailer()
     {
-        GameObject lorry = lorryArrival != null ? lorryArrival.SpawnedLorry : null;
-        if (lorry == null)
-            return null;
-
-        foreach (Transform child in lorry.GetComponentsInChildren<Transform>(true))
-        {
-            if (child.name == "BigTruck0102Trailer")
-                return child;
-        }
-
-        return null;
+        // Tractor and trailer are now separate runtime prefabs. Use the
+        // explicit trailer reference instead of searching for the old nested
+        // BigTruck0102Trailer child name.
+        GameObject trailer = lorryArrival != null ? lorryArrival.SpawnedTrailer : null;
+        return trailer != null ? trailer.transform : null;
     }
 
     private static string GetPath(Transform item)
