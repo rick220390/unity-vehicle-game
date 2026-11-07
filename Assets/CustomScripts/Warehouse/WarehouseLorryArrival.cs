@@ -229,11 +229,36 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
         if (spawnedTrailer == null)
             return;
 
-        Rigidbody trailerBody = spawnedTrailer.GetComponent<Rigidbody>();
-        Rigidbody[] cargoBodies = spawnedTrailer.GetComponentsInChildren<Rigidbody>(true);
-        foreach (Rigidbody body in cargoBodies)
+        // Only lock pallet bodies inside the dedicated Load container.
+        // Never touch trailer wheels, suspension, chassis or coupling bodies.
+        Transform load = FindChild(spawnedTrailer.transform, "Load");
+        if (load == null)
         {
-            if (body == null || body == trailerBody)
+            Debug.LogWarning("WarehouseLorryArrival: No child named 'Load' found on the spawned trailer. Cargo was not locked.", spawnedTrailer);
+            return;
+        }
+
+        Rigidbody[] loadBodies = load.GetComponentsInChildren<Rigidbody>(true);
+        foreach (Rigidbody body in loadBodies)
+        {
+            if (body == null || body.transform == load)
+                continue;
+
+            // Only process the outermost Rigidbody in each cargo branch
+            // (normally the pallet root); ignore nested box/prop Rigidbodies.
+            Transform parent = body.transform.parent;
+            bool hasCargoRigidbodyParent = false;
+            while (parent != null && parent != load)
+            {
+                if (parent.GetComponent<Rigidbody>() != null)
+                {
+                    hasCargoRigidbodyParent = true;
+                    break;
+                }
+                parent = parent.parent;
+            }
+
+            if (hasCargoRigidbodyParent)
                 continue;
 
             body.velocity = Vector3.zero;
