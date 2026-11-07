@@ -47,6 +47,7 @@ public class WarehouseLorryArrival : MonoBehaviour
     private Coroutine arrivalRoutine;
     private bool hasArrived;
     private float lockedLorryY;
+    private float groundClearanceOffset;
 
     public GameObject SpawnedLorry => spawnedLorry;
     public bool HasArrived => hasArrived;
@@ -163,6 +164,7 @@ public class WarehouseLorryArrival : MonoBehaviour
         }
 
         lockedLorryY = spawnedLorry.transform.position.y;
+        groundClearanceOffset = lockedLorryY - groundY;
 
         Rigidbody[] bodies = spawnedLorry.GetComponentsInChildren<Rigidbody>(true);
         foreach (Rigidbody body in bodies)
@@ -211,6 +213,7 @@ public class WarehouseLorryArrival : MonoBehaviour
                 Vector3 movedPosition = truck.position + travelDirection * step;
                 movedPosition.y = lockedLorryY;
                 truck.position = movedPosition;
+                FollowGround();
 
                 if (animateWheels)
                     RotateWheels(step, point.reverse);
@@ -227,6 +230,7 @@ public class WarehouseLorryArrival : MonoBehaviour
             Vector3 finalPosition = point.target.position;
             finalPosition.y = lockedLorryY;
             spawnedLorry.transform.position = finalPosition;
+            FollowGround();
 
             Quaternion finalRotation = Quaternion.Euler(0f, point.target.eulerAngles.y, 0f);
             while (spawnedLorry != null && Quaternion.Angle(spawnedLorry.transform.rotation, finalRotation) > 0.25f)
@@ -249,6 +253,33 @@ public class WarehouseLorryArrival : MonoBehaviour
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Lorry has reached the loading bay and is ready for unloading.", this);
+    }
+
+    // Re-sample the ground along the route. A single locked spawn height
+    // causes the lorry to float or sink whenever the yard surface changes height.
+    private void FollowGround()
+    {
+        if (spawnedLorry == null)
+            return;
+
+        Vector3 origin = spawnedLorry.transform.position + Vector3.up * 100f;
+        RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, 500f,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        foreach (RaycastHit hit in hits)
+        {
+            if (hit.collider == null || hit.collider.transform == spawnedLorry.transform ||
+                hit.collider.transform.IsChildOf(spawnedLorry.transform))
+                continue;
+
+            Vector3 position = spawnedLorry.transform.position;
+            position.y = hit.point.y + groundClearanceOffset;
+            spawnedLorry.transform.position = position;
+            lockedLorryY = position.y;
+            return;
+        }
     }
 
     private void LockCargoForUnloading()
