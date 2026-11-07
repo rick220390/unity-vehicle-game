@@ -63,7 +63,7 @@ public sealed class PlayerEconomy : MonoBehaviour
 
         if (resetSavedBalanceOnAwake)
         {
-            balance = startingBalance;
+            balancePence = ToPence(startingBalance);
             transactions.Clear();
             Save();
             resetSavedBalanceOnAwake = false;
@@ -79,7 +79,7 @@ public sealed class PlayerEconomy : MonoBehaviour
             Save();
         }
 
-        BalanceChanged?.Invoke(balance);
+        BalanceChanged?.Invoke(Balance);
     }
 
     public void AddMoney(float amount, string description)
