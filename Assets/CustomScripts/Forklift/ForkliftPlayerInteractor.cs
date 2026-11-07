@@ -271,7 +271,50 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
     }
 
+    /// <summary>
+    /// Safely returns the player to the job's designated exit point before
+    /// the forklift is despawned. Works whether the player is seated or on foot.
+    /// </summary>
+    public void ReturnPlayerTo(Transform destination)
+    {
+        if (destination == null)
+        {
+            Debug.LogError("ForkliftPlayerInteractor: Return destination is not assigned.", this);
+            return;
+        }
+
+        if (player == null)
+        {
+            GameObject playerObject = GameObject.FindGameObjectWithTag("Player");
+            if (playerObject != null)
+                BindPlayer(playerObject.transform);
+        }
+
+        if (player == null)
+        {
+            Debug.LogError("ForkliftPlayerInteractor: Cannot return player because no player is bound.", this);
+            return;
+        }
+
+        if (isOccupied)
+            ExitForklift(destination.position, destination.rotation);
+        else
+            player.SetPositionAndRotation(destination.position, destination.rotation);
+    }
+
     private void ExitForklift()
+    {
+        Vector3 exitPosition = driverExitPoint != null
+            ? driverExitPoint.position
+            : transform.position + transform.right * 1.5f;
+        Quaternion exitRotation = driverExitPoint != null
+            ? driverExitPoint.rotation
+            : transform.rotation;
+
+        ExitForklift(exitPosition, exitRotation);
+    }
+
+    private void ExitForklift(Vector3 exitPosition, Quaternion exitRotation)
     {
         if (!isOccupied) return;
 
@@ -294,8 +337,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             forkliftCamera.gameObject.SetActive(false);
 
         player.SetParent(originalParent, true);
-        player.SetPositionAndRotation(driverExitPoint != null ? driverExitPoint.position : transform.position + transform.right * 1.5f,
-                                      driverExitPoint != null ? driverExitPoint.rotation : transform.rotation);
+        player.SetPositionAndRotation(exitPosition, exitRotation);
         player.localScale = originalLocalScale;
 
         foreach (int index in GetIndices(playerColliders.Count))
