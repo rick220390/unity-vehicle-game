@@ -39,10 +39,9 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         joint.secondaryAxis = Vector3.up;
 
         joint.xMotion = ConfigurableJointMotion.Locked;
-        // Lock all translation at the fifth wheel. A free vertical axis lets the
-        // trailer drop/bounce independently and can destabilise the whole rig.
-        // Require close pivot alignment before connecting so these locks do not snap.
-        joint.yMotion = ConfigurableJointMotion.Locked;
+        // Keep vertical articulation free because trailer prefab kingpin heights
+        // can differ. Horizontal anchors must still be closely aligned before coupling.
+        joint.yMotion = ConfigurableJointMotion.Free;
         joint.zMotion = ConfigurableJointMotion.Locked;
         // Allow articulation around the vertical axis (yaw), while permitting a
         // small amount of pitch and roll for uneven ground without free tipping.
