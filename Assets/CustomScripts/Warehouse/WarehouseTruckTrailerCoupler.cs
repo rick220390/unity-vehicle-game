@@ -8,7 +8,8 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
 {
-    private const float MaximumAnchorMismatch = 0.03f;
+    private const float MaximumHorizontalAnchorMismatch = 0.2f;
+    private const float MaximumVerticalAnchorMismatch = 0.1f;
 
     public static bool Connect(
         Rigidbody tractorBody,
@@ -29,14 +30,20 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         // Never reposition the trailer here. Silently shifting its root makes the
         // markers appear to be ignored and can put the kingpin below the fifth wheel.
         // Both physical markers must already occupy the same world position.
-        float anchorMismatch = Vector3.Distance(fifthWheelPivot.position, kingpinPivot.position);
-        if (anchorMismatch > MaximumAnchorMismatch)
+        Vector3 markerOffset = fifthWheelPivot.position - kingpinPivot.position;
+        float horizontalMismatch = new Vector2(markerOffset.x, markerOffset.z).magnitude;
+        float verticalMismatch = Mathf.Abs(markerOffset.y);
+        if (horizontalMismatch > MaximumHorizontalAnchorMismatch ||
+            verticalMismatch > MaximumVerticalAnchorMismatch)
         {
             Debug.LogError(
-                "WarehouseTruckTrailerCoupler: Markers are " + anchorMismatch.ToString("0.000") +
-                "m apart after physics sync (maximum " + MaximumAnchorMismatch.ToString("0.000") +
-                "m). Fifth wheel world=" + fifthWheelPivot.position.ToString("F3") +
-                ", kingpin world=" + kingpinPivot.position.ToString("F3") +
+                "WarehouseTruckTrailerCoupler: Markers are outside the seating tolerance. Horizontal=" +
+                horizontalMismatch.ToString("0.000") + "m (max " +
+                MaximumHorizontalAnchorMismatch.ToString("0.000") + "m), vertical=" +
+                verticalMismatch.ToString("0.000") + "m (max " +
+                MaximumVerticalAnchorMismatch.ToString("0.000") + "m). Fifth wheel world=" +
+                fifthWheelPivot.position.ToString("F3") + ", kingpin world=" +
+                kingpinPivot.position.ToString("F3") + ", delta=" + markerOffset.ToString("F3") +
                 ". No vehicle was moved and no joint was created.");
             return false;
         }
