@@ -153,7 +153,8 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        // Cargo attachment is intentionally disabled while establishing basic tractor/trailer physics.
+        // Use the same physical cargo securing routine as player-coupled trailers.
+        AttachCargoToTrailer(trailerBody);
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Spawned tractor '" + tractorPrefab.name +
@@ -229,40 +230,7 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
         if (spawnedTrailer == null || trailerBody == null)
             return;
 
-        Transform load = FindChild(spawnedTrailer.transform, "Load");
-        if (load == null)
-        {
-            Debug.LogWarning("WarehouseLorryArrival: No child named 'Load' found. Cargo joints were not created.", spawnedTrailer);
-            return;
-        }
-
-        int attachedCount = 0;
-        foreach (Transform child in load)
-        {
-            Rigidbody palletBody = child.GetComponent<Rigidbody>();
-            if (palletBody == null)
-            {
-                Debug.LogWarning("WarehouseLorryArrival: Load child '" + child.name + "' has no Rigidbody on its root; skipping it.", child);
-                continue;
-            }
-
-            palletBody.isKinematic = false;
-            palletBody.useGravity = true;
-            palletBody.interpolation = RigidbodyInterpolation.Interpolate;
-            palletBody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-
-            FixedJoint cargoJoint = child.GetComponent<FixedJoint>();
-            if (cargoJoint == null)
-                cargoJoint = child.gameObject.AddComponent<FixedJoint>();
-
-            cargoJoint.connectedBody = trailerBody;
-            cargoJoint.enableCollision = false;
-            cargoJoint.breakForce = Mathf.Infinity;
-            cargoJoint.breakTorque = Mathf.Infinity;
-            attachedCount++;
-        }
-
-        Debug.Log("WarehouseLorryArrival: Attached " + attachedCount + " pallet(s) to trailer using FixedJoints.", this);
+        WarehouseTrailerCargoSecuring.Secure(spawnedTrailer.transform, trailerBody);
     }
 
     private static Transform FindChild(Transform root, string exactName)
