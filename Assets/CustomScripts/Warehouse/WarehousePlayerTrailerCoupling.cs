@@ -12,10 +12,10 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     [Header("Coupling")]
     [SerializeField] private string kingpinPivotName = "kingpinPivot";
     [Tooltip("Maximum horizontal distance between the fifth wheel and kingpin.")]
-    [SerializeField, Min(0.1f)] private float couplingDistance = 0.9f;
+    [SerializeField, Min(0.05f)] private float couplingDistance = 0.2f;
     [Tooltip("Maximum vertical height difference between the fifth wheel and kingpin.")]
-    [SerializeField, Min(0.05f)] private float maximumHeightDifference = 0.45f;
-    [SerializeField, Range(1f, 45f)] private float maximumAlignmentAngle = 18f;
+    [SerializeField, Min(0.02f)] private float maximumHeightDifference = 0.1f;
+    [SerializeField, Range(1f, 20f)] private float maximumAlignmentAngle = 8f;
 
     [Header("Landing legs")]
     [Tooltip("Assign only the colliders that physically support the trailer when uncoupled.")]
@@ -65,6 +65,13 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
             return false;
         }
 
+        float relativeSpeed = (trailerBody.velocity - tractorBody.velocity).magnitude;
+        if (relativeSpeed > 0.5f)
+        {
+            reason = "Stop the tractor and trailer before coupling (relative speed must be below 0.5 m/s).";
+            return false;
+        }
+
         Vector3 pivotOffset = fifthWheelPivot.position - kingpinPivot.position;
         Vector3 horizontalOffset = Vector3.ProjectOnPlane(pivotOffset, Vector3.up);
         float horizontalDistance = horizontalOffset.magnitude;
@@ -97,6 +104,9 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     {
         if (!CanCouple(tractorBody, fifthWheelPivot, out reason))
             return false;
+
+        // Apply current transform changes before creating a constrained joint.
+        Physics.SyncTransforms();
 
         if (!WarehouseTruckTrailerCoupler.Connect(
             tractorBody, fifthWheelPivot, trailerBody, kingpinPivot, out couplingJoint))
