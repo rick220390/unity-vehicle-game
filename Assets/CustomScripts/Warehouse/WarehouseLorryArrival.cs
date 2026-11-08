@@ -25,12 +25,6 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
     [SerializeField] private GameObject[] trailerPrefabs;
     [SerializeField] private Transform spawnPoint;
 
-    [Header("Attachment points")]
-    [Tooltip("Exact child name on the tractor prefab.")]
-    [SerializeField] private string fifthWheelPivotName = "FithWheelPivot";
-    [Tooltip("Exact child name on each trailer prefab.")]
-    [SerializeField] private string kingpinPivotName = "kingpinPivot";
-
     [Header("Arrival route")]
     [SerializeField] private List<RoutePoint> route = new List<RoutePoint>();
     [SerializeField, Min(0.1f)] private float drivingSpeedKph = 12f;
@@ -112,17 +106,19 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        Transform fifthWheelPivot = FindChild(spawnedTractor.transform, fifthWheelPivotName);
-        Transform kingpinPivot = FindChild(spawnedTrailer.transform, kingpinPivotName);
+        WarehouseTruckFifthWheel fifthWheel = spawnedTractor.GetComponent<WarehouseTruckFifthWheel>();
+        WarehousePlayerTrailerCoupling trailerCoupling = spawnedTrailer.GetComponent<WarehousePlayerTrailerCoupling>();
+        Transform fifthWheelPivot = fifthWheel != null ? fifthWheel.Pivot : null;
+        Transform kingpinPivot = trailerCoupling != null ? trailerCoupling.KingpinPivot : null;
 
         if (tractorBody == null || fifthWheelPivot == null || kingpinPivot == null)
         {
             Debug.LogError(
                 "WarehouseLorryArrival: Could not prepare coupling. Tractor Rigidbody=" + (tractorBody != null) +
                 ". Tractor root Rigidbody=" + (tractorBody != null) +
-                ", " + fifthWheelPivotName + "=" + (fifthWheelPivot != null) +
+                ", assigned FithWheelPivot=" + (fifthWheelPivot != null) +
                 ", trailer Rigidbody=" + (trailerBody != null) +
-                ", " + kingpinPivotName + "=" + (kingpinPivot != null) + ".", this);
+                ", assigned kingpinPivot=" + (kingpinPivot != null) + ".", this);
             RemoveLorry();
             return;
         }
@@ -231,14 +227,6 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
 
         WarehouseTrailerCargoSecuring.Secure(spawnedTrailer.transform, trailerBody);
-    }
-
-    private static Transform FindChild(Transform root, string exactName)
-    {
-        if (root == null) return null;
-        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-            if (child.name == exactName) return child;
-        return null;
     }
 
     private static float HorizontalDistance(Vector3 a, Vector3 b)
