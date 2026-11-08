@@ -111,6 +111,9 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         // The tractor now supports the front of the trailer.
         SetLandingLegSupport(false);
 
+        // Secure the same pallet-and-item hierarchy used by the AI lorry.
+        WarehouseTrailerCargoSecuring.Secure(transform, trailerBody);
+
         reason = "Trailer coupled.";
         Debug.Log("WarehousePlayerTrailerCoupling: Trailer coupled to " + tractorBody.name + ".", this);
         return true;
