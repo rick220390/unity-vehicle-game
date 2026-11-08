@@ -44,6 +44,12 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
                 MaximumVerticalAnchorMismatch.ToString("0.000") + "m). Fifth wheel world=" +
                 fifthWheelPivot.position.ToString("F3") + ", kingpin world=" +
                 kingpinPivot.position.ToString("F3") + ", delta=" + markerOffset.ToString("F3") +
+                ". Fifth-wheel reference: " + DescribeTransform(fifthWheelPivot) +
+                ". Kingpin reference: " + DescribeTransform(kingpinPivot) +
+                ". Tractor Rigidbody transform: " + DescribeTransform(tractorBody.transform) +
+                ". Trailer Rigidbody transform: " + DescribeTransform(trailerBody.transform) +
+                ". Fifth-wheel marker under tractor Rigidbody=" + fifthWheelPivot.IsChildOf(tractorBody.transform) +
+                "; kingpin marker under trailer Rigidbody=" + kingpinPivot.IsChildOf(trailerBody.transform) +
                 ". No vehicle was moved and no joint was created.");
             return false;
         }
