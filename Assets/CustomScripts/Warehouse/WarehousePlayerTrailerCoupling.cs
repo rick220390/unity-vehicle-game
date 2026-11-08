@@ -23,7 +23,6 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     [SerializeField] private Collider[] landingLegSupportColliders;
 
     private Rigidbody trailerBody;
-    private Transform kingpinPivot;
     private ConfigurableJoint couplingJoint;
     private Rigidbody connectedTractor;
     private bool isCoupled;
