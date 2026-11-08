@@ -45,8 +45,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private readonly List<bool> colliderStates = new List<bool>();
     private readonly List<Behaviour> lockedBehaviours = new List<Behaviour>();
     private readonly List<bool> behaviourStates = new List<bool>();
-    private bool playerCameraControllerWasEnabled;
-    private bool playerCameraWasEnabled;
+    private readonly List<Behaviour> scenePlayerCameraControllers = new List<Behaviour>();
+    private readonly List<bool> scenePlayerCameraControllerStates = new List<bool>();
+    private readonly List<Camera> scenePlayerCameras = new List<Camera>();
+    private readonly List<bool> scenePlayerCameraStates = new List<bool>();
     private bool cursorWasVisible;
     private bool forkliftCameraInputWasEnabled;
     private CursorLockMode cursorLockWas;
@@ -111,20 +113,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             playerRigidbody = player.GetComponent<Rigidbody>();
             if (playerRigidbody == null) playerRigidbody = player.GetComponentInChildren<Rigidbody>();
 
-            if (playerCameraController == null)
-            {
-                foreach (Behaviour component in player.GetComponentsInChildren<Behaviour>(true))
-                {
-                    if (component != null && component.GetType().Name == "vThirdPersonCamera")
-                    {
-                        playerCameraController = component;
-                        break;
-                    }
-                }
-            }
-
-            if (playerCamera == null && playerCameraController != null)
-                playerCamera = playerCameraController.GetComponent<Camera>();
+            ResolvePlayerCameraRig();
 
             // Keep the on-foot player camera as the only MainCamera.
             if (playerCamera == null)
@@ -154,20 +143,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         playerRigidbody = player.GetComponent<Rigidbody>();
         if (playerRigidbody == null) playerRigidbody = player.GetComponentInChildren<Rigidbody>();
 
-        if (playerCameraController == null)
-        {
-            foreach (Behaviour component in player.GetComponentsInChildren<Behaviour>(true))
-            {
-                if (component != null && component.GetType().Name == "vThirdPersonCamera")
-                {
-                    playerCameraController = component;
-                    break;
-                }
-            }
-        }
-
-        if (playerCamera == null && playerCameraController != null)
-            playerCamera = playerCameraController.GetComponent<Camera>();
+        ResolvePlayerCameraRig();
 
         // Do not use Camera.main here: it could resolve to the forklift camera.
         if (playerCamera == null)
@@ -204,6 +180,59 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         }
 
         return fallback;
+    }
+
+    /// <summary>
+    /// Invector's camera is a separate scene object, not a child of the player.
+    /// </summary>
+    private void ResolvePlayerCameraRig()
+    {
+        if (playerCameraController != null && playerCamera != null) return;
+        vThirdPersonCamera[] rigs = Resources.FindObjectsOfTypeAll<vThirdPersonCamera>();
+        foreach (vThirdPersonCamera rig in rigs)
+        {
+            if (rig == null || !rig.gameObject.scene.IsValid() || !rig.gameObject.scene.isLoaded) continue;
+            if (playerCameraController == null) playerCameraController = rig;
+            if (playerCamera == null) playerCamera = rig.GetComponent<Camera>();
+            if (playerCameraController != null && playerCamera != null) break;
+        }
+    }
+
+    private void DisableScenePlayerCameras()
+    {
+        scenePlayerCameraControllers.Clear();
+        scenePlayerCameraControllerStates.Clear();
+        scenePlayerCameras.Clear();
+        scenePlayerCameraStates.Clear();
+
+        vThirdPersonCamera[] rigs = Resources.FindObjectsOfTypeAll<vThirdPersonCamera>();
+        foreach (vThirdPersonCamera rig in rigs)
+        {
+            if (rig == null || !rig.gameObject.scene.IsValid() || !rig.gameObject.scene.isLoaded) continue;
+            scenePlayerCameraControllers.Add(rig);
+            scenePlayerCameraControllerStates.Add(rig.enabled);
+            rig.enabled = false;
+
+            Camera physicalCamera = rig.GetComponent<Camera>();
+            if (physicalCamera != null)
+            {
+                scenePlayerCameras.Add(physicalCamera);
+                scenePlayerCameraStates.Add(physicalCamera.enabled);
+                physicalCamera.enabled = false;
+            }
+        }
+        if (scenePlayerCameraControllers.Count == 0)
+            Debug.LogWarning("ForkliftPlayerInteractor: No loaded vThirdPersonCamera was found to disable.", this);
+    }
+
+    private void RestoreScenePlayerCameras()
+    {
+        for (int i = 0; i < scenePlayerCameraControllers.Count; i++)
+            if (scenePlayerCameraControllers[i] != null)
+                scenePlayerCameraControllers[i].enabled = scenePlayerCameraControllerStates[i];
+        for (int i = 0; i < scenePlayerCameras.Count; i++)
+            if (scenePlayerCameras[i] != null)
+                scenePlayerCameras[i].enabled = scenePlayerCameraStates[i];
     }
 
     private void Update()
@@ -276,13 +305,8 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         foreach (Behaviour behaviour in lockedBehaviours)
             if (behaviour != null) behaviour.enabled = false;
 
-        if (forkliftCamera != null)
-        {
-            if (playerCameraController != null)
-                playerCameraController.enabled = false;
-            if (playerCamera != null)
-                playerCamera.enabled = false;
-        }
+        // Invector's camera is a separate scene object, not a player child.
+        DisableScenePlayerCameras();
 
         player.SetParent(driverSeatPoint, false);
         player.localPosition = Vector3.zero;
@@ -454,10 +478,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             SetVelocity(Vector3.zero);
         }
 
-        if (playerCameraController != null)
-            playerCameraController.enabled = playerCameraControllerWasEnabled;
-        if (playerCamera != null)
-            playerCamera.enabled = playerCameraWasEnabled;
+        RestoreScenePlayerCameras();
 
         Cursor.visible = cursorWasVisible;
         Cursor.lockState = cursorLockWas;
@@ -491,8 +512,6 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             colliderStates.Add(col.enabled);
         }
 
-        playerCameraControllerWasEnabled = playerCameraController != null && playerCameraController.enabled;
-        playerCameraWasEnabled = playerCamera != null && playerCamera.enabled;
         cursorWasVisible = Cursor.visible;
         cursorLockWas = Cursor.lockState;
     }
