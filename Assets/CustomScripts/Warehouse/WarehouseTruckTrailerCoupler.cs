@@ -33,9 +33,11 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         if (anchorMismatch > MaximumAnchorMismatch)
         {
             Debug.LogError(
-                "WarehouseTruckTrailerCoupler: Refusing to create the joint because FithWheelPivot and kingpinPivot are " +
-                anchorMismatch.ToString("0.000") + "m apart. Align the actual markers (maximum " +
-                MaximumAnchorMismatch.ToString("0.000") + "m). No vehicle was moved.");
+                "WarehouseTruckTrailerCoupler: Markers are " + anchorMismatch.ToString("0.000") +
+                "m apart after physics sync (maximum " + MaximumAnchorMismatch.ToString("0.000") +
+                "m). Fifth wheel world=" + fifthWheelPivot.position.ToString("F3") +
+                ", kingpin world=" + kingpinPivot.position.ToString("F3") +
+                ". No vehicle was moved and no joint was created.");
             return false;
         }
 
