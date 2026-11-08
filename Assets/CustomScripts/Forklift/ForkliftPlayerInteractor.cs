@@ -46,15 +46,15 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private bool playerCameraWasEnabled;
     private bool cursorWasVisible;
     private CursorLockMode cursorLockWas;
-    private void SetActiveCameraTags(bool forkliftIsActive)
+    private void ConfigureCameraTags()
     {
-        // WSM's vehicle camera expects to be discoverable as Camera.main.
-        // Only one camera should carry MainCamera at a time.
+        // WSMVehicleCamera controls its own Camera component (GetComponent<Camera>).
+        // It does not need Camera.main, so keep the two camera identities separate.
         if (playerCamera != null)
-            playerCamera.tag = forkliftIsActive ? "Untagged" : "MainCamera";
+            playerCamera.tag = "MainCamera";
 
         if (forkliftCamera != null)
-            forkliftCamera.tag = forkliftIsActive ? "MainCamera" : "Untagged";
+            forkliftCamera.tag = "ForkliftCamera";
     }
 
     private void Awake()
@@ -126,7 +126,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             if (playerCamera == null)
                 Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector; Camera.main is deliberately not used as a fallback.", this);
 
-            SetActiveCameraTags(false);
+            ConfigureCameraTags();
         }
 
         if (driverSeatPoint == null || driverExitPoint == null)
@@ -270,10 +270,6 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         player.localPosition = Vector3.zero;
         player.localRotation = Quaternion.identity;
         player.localScale = originalLocalScale;
-
-        // Hand Camera.main over to WSM while driving. Its camera logic needs
-        // the MainCamera tag; the player camera is restored when exiting.
-        SetActiveCameraTags(true);
 
         // Prepare camera target before enabling the camera GameObject.
         if (forkliftCamera != null)
