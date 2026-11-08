@@ -11,8 +11,11 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
 {
     [Header("Coupling")]
     [SerializeField] private string kingpinPivotName = "kingpinPivot";
-    [SerializeField, Min(0.1f)] private float couplingDistance = 0.65f;
-    [SerializeField, Range(1f, 45f)] private float maximumAlignmentAngle = 12f;
+    [Tooltip("Maximum horizontal distance between the fifth wheel and kingpin.")]
+    [SerializeField, Min(0.1f)] private float couplingDistance = 0.9f;
+    [Tooltip("Maximum vertical height difference between the fifth wheel and kingpin.")]
+    [SerializeField, Min(0.05f)] private float maximumHeightDifference = 0.45f;
+    [SerializeField, Range(1f, 45f)] private float maximumAlignmentAngle = 18f;
 
     [Header("Landing legs")]
     [Tooltip("Assign only the colliders that physically support the trailer when uncoupled.")]
@@ -62,10 +65,18 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
             return false;
         }
 
-        float distance = Vector3.Distance(fifthWheelPivot.position, kingpinPivot.position);
-        if (distance > couplingDistance)
+        Vector3 pivotOffset = fifthWheelPivot.position - kingpinPivot.position;
+        Vector3 horizontalOffset = Vector3.ProjectOnPlane(pivotOffset, Vector3.up);
+        float horizontalDistance = horizontalOffset.magnitude;
+        float heightDifference = Mathf.Abs(pivotOffset.y);
+
+        if (horizontalDistance > couplingDistance || heightDifference > maximumHeightDifference)
         {
-            reason = "Reverse closer to the trailer.";
+            reason = "Coupling alignment: horizontal " + horizontalDistance.ToString("0.00") +
+                     "m / " + couplingDistance.ToString("0.00") + "m, height difference " +
+                     heightDifference.ToString("0.00") + "m / " +
+                     maximumHeightDifference.ToString("0.00") + "m. Adjust tractor position/height.";
+            Debug.LogWarning("WarehousePlayerTrailerCoupling: " + reason, this);
             return false;
         }
 
