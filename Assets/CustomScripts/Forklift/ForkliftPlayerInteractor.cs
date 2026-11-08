@@ -76,6 +76,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             if (forkliftCameraInput == null)
                 forkliftCameraInput = forkliftCamera.GetComponent<WSMVehicleCameraPlayerInput>();
 
+            // The WSM camera uses its own target and camera component. It must
+            // not compete with the Invector player camera for Camera.main.
+            forkliftCamera.tag = "Untagged";
+
             // Keep the complete camera object off until a driver enters.
             forkliftCamera.gameObject.SetActive(false);
         }
@@ -108,7 +112,12 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
             if (playerCamera == null && playerCameraController != null)
                 playerCamera = playerCameraController.GetComponent<Camera>();
-            if (playerCamera == null) playerCamera = Camera.main;
+
+            // Keep the on-foot player camera as the only MainCamera.
+            if (playerCamera != null)
+                playerCamera.tag = "MainCamera";
+            else
+                Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector; Camera.main is deliberately not used as a fallback.", this);
         }
 
         if (driverSeatPoint == null || driverExitPoint == null)
@@ -146,7 +155,12 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         if (playerCamera == null && playerCameraController != null)
             playerCamera = playerCameraController.GetComponent<Camera>();
-        if (playerCamera == null) playerCamera = Camera.main;
+
+        // Do not use Camera.main here: it could resolve to the forklift camera.
+        if (playerCamera != null)
+            playerCamera.tag = "MainCamera";
+        else
+            Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector.", this);
 
         Debug.Log("ForkliftPlayerInteractor: Player bound to spawned forklift: " + player.name, this);
     }
