@@ -10,7 +10,8 @@ using UnityEngine;
 public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
 {
     [Header("Coupling")]
-    [SerializeField] private string kingpinPivotName = "kingpinPivot";
+    [Tooltip("Drag the trailer's kingpinPivot empty Transform here.")]
+    [SerializeField] private Transform kingpinPivot;
     [Tooltip("Maximum horizontal distance between the fifth wheel and kingpin.")]
     [SerializeField, Min(0.05f)] private float couplingDistance = 0.2f;
     [Tooltip("Maximum vertical height difference between the fifth wheel and kingpin.")]
@@ -34,13 +35,11 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     private void Awake()
     {
         trailerBody = GetComponent<Rigidbody>();
-        kingpinPivot = FindChild(transform, kingpinPivotName);
-
         // A standalone trailer starts supported by its landing legs.
         SetLandingLegSupport(true);
 
         if (kingpinPivot == null)
-            Debug.LogError("WarehousePlayerTrailerCoupling: Could not find child '" + kingpinPivotName + "'.", this);
+            Debug.LogError("WarehousePlayerTrailerCoupling: Assign the trailer kingpinPivot Transform in the Inspector.", this);
     }
 
     public bool CanCouple(Rigidbody tractorBody, Transform fifthWheelPivot, out string reason)
@@ -169,18 +168,9 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         }
     }
 
-    private static Transform FindChild(Transform root, string exactName)
-    {
-        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-            if (child.name == exactName)
-                return child;
-
-        return null;
-    }
-
     private void OnDrawGizmosSelected()
     {
-        Transform marker = kingpinPivot != null ? kingpinPivot : FindChild(transform, kingpinPivotName);
+        Transform marker = kingpinPivot;
         if (marker == null) return;
 
         Gizmos.color = isCoupled ? Color.green : Color.yellow;
