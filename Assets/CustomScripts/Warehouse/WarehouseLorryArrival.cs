@@ -127,10 +127,14 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        // Position the separate trailer so the two coupling markers coincide.
+        // Align the trailer horizontally with the fifth wheel, but preserve its
+        // prefab-authored height so its own suspension and wheels remain grounded.
+        // The coupler allows vertical articulation to accommodate pivot-height differences.
         spawnedTrailer.transform.rotation = spawnedTractor.transform.rotation;
         Physics.SyncTransforms();
-        spawnedTrailer.transform.position += fifthWheelPivot.position - kingpinPivot.position;
+        Vector3 horizontalOffset = fifthWheelPivot.position - kingpinPivot.position;
+        horizontalOffset.y = 0f;
+        spawnedTrailer.transform.position += horizontalOffset;
         Physics.SyncTransforms();
 
         tractorBody.isKinematic = false;
@@ -149,10 +153,7 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             return;
         }
 
-        // Physically secure each pallet to the trailer with a FixedJoint.
-        // Pallets remain dynamic; we do not freeze their Rigidbody.
-        AttachCargoToTrailer(trailerBody);
-
+        // Cargo attachment is intentionally disabled while establishing basic tractor/trailer physics.
 
         if (logArrival)
             Debug.Log("WarehouseLorryArrival: Spawned tractor '" + tractorPrefab.name +
