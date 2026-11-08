@@ -39,7 +39,10 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         joint.secondaryAxis = Vector3.up;
 
         joint.xMotion = ConfigurableJointMotion.Locked;
-        joint.yMotion = ConfigurableJointMotion.Locked;
+        // Let the trailer move vertically relative to the fifth wheel. This prevents
+        // a mismatched pivot height from lifting the trailer and unloading its wheels.
+        // The tractor still pulls it horizontally and controls its yaw articulation.
+        joint.yMotion = ConfigurableJointMotion.Free;
         joint.zMotion = ConfigurableJointMotion.Locked;
         joint.angularXMotion = ConfigurableJointMotion.Locked;
         joint.angularYMotion = ConfigurableJointMotion.Free;
@@ -47,7 +50,8 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
 
         joint.enableCollision = false;
         joint.enablePreprocessing = true;
-        joint.projectionMode = JointProjectionMode.PositionAndRotation;
+        // Avoid projection snapping the trailer body upward/downward at connection.
+        joint.projectionMode = JointProjectionMode.None;
         joint.projectionDistance = 0.05f;
         joint.projectionAngle = 5f;
         joint.massScale = 1f;
