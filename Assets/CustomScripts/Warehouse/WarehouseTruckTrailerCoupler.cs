@@ -23,8 +23,15 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
             return false;
         }
 
-        // The trailer root is positioned so both pivots coincide before this
-        // joint is created. Keep the joint anchors in each body's local space.
+        // Seat the kingpin exactly onto the fifth-wheel pivot BEFORE creating
+        // the joint. Merely creating a joint between separated world-space anchors
+        // makes PhysX pull the trailer into place in one solver step, which can
+        // launch the trailer or tractor. Move the trailer Rigidbody as a whole so
+        // the authored kingpin marker and the receiver pivot are coincident.
+        Vector3 seatingOffset = fifthWheelPivot.position - kingpinPivot.position;
+        trailerBody.position += seatingOffset;
+        Physics.SyncTransforms();
+
         joint = trailerBody.GetComponent<ConfigurableJoint>();
         if (joint == null)
             joint = trailerBody.gameObject.AddComponent<ConfigurableJoint>();
