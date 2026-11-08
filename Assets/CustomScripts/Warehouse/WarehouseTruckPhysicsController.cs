@@ -20,6 +20,8 @@ public sealed class WarehouseTruckPhysicsController : MonoBehaviour
     [SerializeField, Min(1f)] private float maximumSpeedKph = 18f;
     [SerializeField, Min(1f)] private float maximumSteerAngle = 32f;
     [SerializeField, Min(100f)] private float motorTorquePerWheel = 1800f;
+    [Tooltip("Extra torque multiplier when reversing with a trailer. 2 means twice the forward per-wheel torque.")]
+    [SerializeField, Min(1f)] private float reverseTorqueMultiplier = 2f;
     [SerializeField, Min(100f)] private float serviceBrakeTorque = 5000f;
     [SerializeField, Min(0.1f)] private float steeringSensitivity = 1f;
     [SerializeField, Min(0.1f)] private float waypointSlowdownDistance = 5f;
@@ -178,9 +180,12 @@ public sealed class WarehouseTruckPhysicsController : MonoBehaviour
         if (distance < waypointSlowdownDistance)
             targetSpeed *= Mathf.Clamp01(distance / waypointSlowdownDistance);
 
-        float currentSpeed = SpeedKph * (reversing ? -1f : 1f);
-        float speedError = targetSpeed - Mathf.Abs(currentSpeed);
+        // Use the same speed controller in either direction, but give reverse
+        // additional torque to overcome the greater resistance of pulling a trailer.
+        float speedError = targetSpeed - SpeedKph;
         float torque = Mathf.Clamp(speedError * motorTorquePerWheel, 0f, motorTorquePerWheel);
+        if (reversing)
+            torque *= reverseTorqueMultiplier;
 
         foreach (WheelCollider wheel in driveWheels)
         {
