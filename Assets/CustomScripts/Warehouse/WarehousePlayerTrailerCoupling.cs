@@ -73,16 +73,16 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         }
 
         Vector3 pivotOffset = fifthWheelPivot.position - kingpinPivot.position;
-        Vector3 horizontalOffset = Vector3.ProjectOnPlane(pivotOffset, Vector3.up);
-        float horizontalDistance = horizontalOffset.magnitude;
-        float heightDifference = Mathf.Abs(pivotOffset.y);
+        float markerSeparation = pivotOffset.magnitude;
 
-        if (horizontalDistance > couplingDistance || heightDifference > maximumHeightDifference)
+        // A rigid fifth-wheel joint must begin with its two anchors almost coincident.
+        // A loose approach tolerance lets the joint yank the kingpin toward the plate.
+        const float maximumMarkerSeparation = 0.03f;
+        if (markerSeparation > maximumMarkerSeparation)
         {
-            reason = "Coupling alignment: horizontal " + horizontalDistance.ToString("0.00") +
-                     "m / " + couplingDistance.ToString("0.00") + "m, height difference " +
-                     heightDifference.ToString("0.00") + "m / " +
-                     maximumHeightDifference.ToString("0.00") + "m. Adjust tractor position/height.";
+            reason = "Coupling markers are " + markerSeparation.ToString("0.000") +
+                     "m apart (maximum " + maximumMarkerSeparation.ToString("0.000") +
+                     "m). Align the kingpin directly over the fifth-wheel pivot.";
             Debug.LogWarning("WarehousePlayerTrailerCoupling: " + reason, this);
             return false;
         }
@@ -102,11 +102,12 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
 
     public bool TryCouple(Rigidbody tractorBody, Transform fifthWheelPivot, out string reason)
     {
+        // Synchronise physics BEFORE validation. Validation and joint creation
+        // must use the same marker poses; previously the sync happened between them.
+        Physics.SyncTransforms();
+
         if (!CanCouple(tractorBody, fifthWheelPivot, out reason))
             return false;
-
-        // Apply current transform changes before creating a constrained joint.
-        Physics.SyncTransforms();
 
         if (!WarehouseTruckTrailerCoupler.Connect(
             tractorBody, fifthWheelPivot, trailerBody, kingpinPivot, out couplingJoint))
