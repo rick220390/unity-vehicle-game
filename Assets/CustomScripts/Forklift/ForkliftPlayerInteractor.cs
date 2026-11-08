@@ -26,6 +26,8 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     [SerializeField] private ForkliftPlayerInput forkliftInput;
     [SerializeField] private WSMVehicleCamera forkliftCamera;
     [SerializeField] private WSMVehicleCameraPlayerInput forkliftCameraInput;
+    [Tooltip("Optional camera look pivot. If empty, one is created at the forklift renderer bounds centre.")]
+    [SerializeField] private Transform forkliftCameraTarget;
 
     [Header("Player camera")]
     [Tooltip("Usually the vThirdPersonCamera component on the player.")]
@@ -271,11 +273,14 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         player.localRotation = Quaternion.identity;
         player.localScale = originalLocalScale;
 
-        // Prepare camera target before enabling the camera GameObject.
+        // Mouse delta is only used by the WSM camera in Enhanced mode.
+        // Legacy mode ignores mouse input and only responds to look-direction buttons.
         if (forkliftCamera != null)
         {
-            forkliftCamera.Target = transform;
+            forkliftCamera.CameraMode = WSMVehicleCameraMode.Enhanced;
+            forkliftCamera.Target = ResolveForkliftCameraTarget();
             forkliftCamera.gameObject.SetActive(true);
+            forkliftCamera.MoveToStartPosition();
             if (forkliftCameraInput != null)
                 forkliftCameraInput.enablePlayerInput = true;
         }
@@ -294,6 +299,42 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
     }
 
+    /// <summary>
+    /// Aim at the visual centre of the forklift instead of the root object's
+    /// commonly ground-level origin.
+    /// </summary>
+    private Transform ResolveForkliftCameraTarget()
+    {
+        if (forkliftCameraTarget != null)
+            return forkliftCameraTarget;
+
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        Bounds bounds = new Bounds(transform.position, Vector3.zero);
+        bool foundRenderer = false;
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer == null || renderer.transform == forkliftCamera.transform ||
+                renderer.transform.IsChildOf(forkliftCamera.transform))
+                continue;
+
+            if (!foundRenderer)
+            {
+                bounds = renderer.bounds;
+                foundRenderer = true;
+            }
+            else
+                bounds.Encapsulate(renderer.bounds);
+        }
+
+        GameObject pivot = new GameObject("ForkliftCameraTarget");
+        pivot.transform.SetParent(transform, false);
+        pivot.transform.localPosition = foundRenderer
+            ? transform.InverseTransformPoint(bounds.center)
+            : Vector3.up * 1.5f;
+        pivot.transform.localRotation = Quaternion.identity;
+        forkliftCameraTarget = pivot.transform;
+        return forkliftCameraTarget;
+    }
     /// <summary>
     /// Safely returns the player to the job's designated exit point before
     /// the forklift is despawned. Works whether the player is seated or on foot.
