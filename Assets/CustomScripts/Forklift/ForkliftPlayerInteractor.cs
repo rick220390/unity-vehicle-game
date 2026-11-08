@@ -86,8 +86,8 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             if (forkliftCameraInput == null)
                 forkliftCameraInput = forkliftCamera.GetComponent<WSMVehicleCameraPlayerInput>();
 
-            // Keep the forklift camera out of Camera.main while the player is on foot.
-            forkliftCamera.tag = "Untagged";
+            // Keep the forklift camera separate from Camera.main at all times.
+            forkliftCamera.tag = "ForkliftCamera";
 
             // Keep the complete camera object off until a driver enters.
             forkliftCamera.gameObject.SetActive(false);
@@ -169,7 +169,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (playerCamera == null)
             Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector.", this);
 
-        SetActiveCameraTags(false);
+        ConfigureCameraTags();
 
         Debug.Log("ForkliftPlayerInteractor: Player bound to spawned forklift: " + player.name, this);
     }
