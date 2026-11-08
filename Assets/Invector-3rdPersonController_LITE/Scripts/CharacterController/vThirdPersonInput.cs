@@ -60,16 +60,25 @@ namespace Invector.vCharacterController
         protected virtual void InitializeTpCamera()
         {
             if (tpCamera == null)
-            {
                 tpCamera = FindFirstObjectByType<vThirdPersonCamera>();
-                if (tpCamera == null)
-                    return;
-                if (tpCamera)
-                {
-                    tpCamera.SetMainTarget(this.transform);
-                    tpCamera.Init();
-                }
+
+            if (tpCamera == null)
+            {
+                Debug.LogError("Invector player: No vThirdPersonCamera was found in the scene.", this);
+                return;
             }
+
+            // Use the physical camera that belongs to this Invector camera rig.
+            // Camera.main can resolve to a vehicle/forklift camera (especially
+            // when that vehicle is spawned after the player has started), and
+            // Invector caches that wrong camera for movement direction.
+            tpCamera.SetMainTarget(transform);
+            cameraMain = tpCamera.GetComponent<Camera>();
+
+            if (cameraMain != null)
+                cc.rotateTarget = cameraMain.transform;
+            else
+                Debug.LogError("Invector player: vThirdPersonCamera has no Camera component on the same GameObject.", tpCamera);
         }
 
         protected virtual void InputHandle()
@@ -89,18 +98,15 @@ namespace Invector.vCharacterController
 
         protected virtual void CameraInput()
         {
-            if (!cameraMain)
-            {
-                if (!Camera.main) Debug.Log("Missing a Camera with the tag MainCamera, please add one.");
-                else
-                {
-                    cameraMain = Camera.main;
-                    cc.rotateTarget = cameraMain.transform;
-                }
-            }
+            // Never use Camera.main here: a vehicle camera may own that tag.
+            // Movement must use the same camera whose mouse rotation is being
+            // controlled by this Invector player.
+            if (tpCamera == null || cameraMain == null)
+                InitializeTpCamera();
 
-            if (cameraMain)
+            if (cameraMain != null)
             {
+                cc.rotateTarget = cameraMain.transform;
                 cc.UpdateMoveDirection(cameraMain.transform);
             }
 
