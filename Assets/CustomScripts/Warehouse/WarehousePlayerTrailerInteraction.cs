@@ -13,7 +13,6 @@ public sealed class WarehousePlayerTrailerInteraction : MonoBehaviour
 
     [Header("Detection")]
     [SerializeField, Min(0.5f)] private float trailerDetectionRadius = 3.5f;
-    [SerializeField] private string fifthWheelPivotName = "FithWheelPivot";
     [SerializeField] private LayerMask detectionMask = ~0;
 
     private WarehousePlayerTrailerCoupling nearbyTrailer;
@@ -55,11 +54,13 @@ public sealed class WarehousePlayerTrailerInteraction : MonoBehaviour
             return;
 
         Rigidbody tractorBody = drivenVehicle.GetComponent<Rigidbody>();
-        Transform fifthWheelPivot = FindChild(drivenVehicle.transform, fifthWheelPivotName);
+        WarehouseTruckFifthWheel fifthWheel = drivenVehicle.GetComponent<WarehouseTruckFifthWheel>();
+        Transform fifthWheelPivot = fifthWheel != null ? fifthWheel.Pivot : null;
 
         if (tractorBody == null || fifthWheelPivot == null)
         {
-            Say("This vehicle has no Rigidbody or " + fifthWheelPivotName + ".");
+            Say("This vehicle needs a Rigidbody and an assigned WarehouseTruckFifthWheel pivot.");
+            Debug.LogError("WarehousePlayerTrailerInteraction: Assign the tractor's FithWheelPivot Transform on its WarehouseTruckFifthWheel component.", drivenVehicle);
             return;
         }
 
@@ -134,15 +135,6 @@ public sealed class WarehousePlayerTrailerInteraction : MonoBehaviour
             if (candidate != null && candidate.isActiveAndEnabled && candidate.HasDriver)
                 return candidate;
         }
-
-        return null;
-    }
-
-    private static Transform FindChild(Transform root, string exactName)
-    {
-        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-            if (child.name == exactName)
-                return child;
 
         return null;
     }
