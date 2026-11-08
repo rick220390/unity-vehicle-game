@@ -28,6 +28,7 @@ public sealed class WarehouseTrailerPalletSlot : MonoBehaviour
     private Rigidbody storedPallet;
     private float stableTimer;
     private Transform loadRoot;
+    private Rigidbody trailerBody;
 
     public bool IsOccupied => storedPallet != null;
 
@@ -58,6 +59,7 @@ public sealed class WarehouseTrailerPalletSlot : MonoBehaviour
             return;
         }
 
+        trailerBody = loadRoot.GetComponentInParent<Rigidbody>();
         if (forklift == null)
             forklift = FindObjectOfType<ForkliftController>();
     }
@@ -139,7 +141,7 @@ public sealed class WarehouseTrailerPalletSlot : MonoBehaviour
 
         // Ignore the trailer itself and any rigidbody that belongs to the
         // forklift. Only loose cargo can be captured by a pallet slot.
-        if (body.transform == loadRoot.root || body.GetComponent<ForkliftController>() != null)
+        if (body == trailerBody || body.GetComponentInParent<ForkliftController>() != null)
             return;
 
         candidate = body;
