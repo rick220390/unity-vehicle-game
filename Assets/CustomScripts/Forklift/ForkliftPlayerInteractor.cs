@@ -360,7 +360,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             forkliftCamera.gameObject.SetActive(false);
 
         // Restore Camera.main to the Invector player camera before re-enabling it.
-        SetActiveCameraTags(false);
+        ConfigureCameraTags();
 
         player.SetParent(originalParent, true);
         player.SetPositionAndRotation(exitPosition, exitRotation);
