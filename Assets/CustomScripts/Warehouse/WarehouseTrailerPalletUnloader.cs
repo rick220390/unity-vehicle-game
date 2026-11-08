@@ -188,11 +188,13 @@ public sealed class WarehouseTrailerPalletUnloader : MonoBehaviour
             return;
         }
 
-        // Remove the transport joint before detaching the pallet from the load.
+        // Remove only the pallet-to-trailer transport joint. Any joints
+        // securing barrels/products to this pallet must remain intact.
+        Rigidbody trailerBody = trailer.GetComponent<Rigidbody>();
         FixedJoint[] cargoJoints = candidate.GetComponents<FixedJoint>();
         foreach (FixedJoint cargoJoint in cargoJoints)
         {
-            if (cargoJoint == null)
+            if (cargoJoint == null || cargoJoint.connectedBody != trailerBody)
                 continue;
 
             cargoJoint.connectedBody = null;
