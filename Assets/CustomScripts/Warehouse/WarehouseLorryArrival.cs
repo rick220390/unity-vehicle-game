@@ -143,7 +143,9 @@ public sealed class WarehouseLorryArrival : MonoBehaviour
             truckController = spawnedTractor.AddComponent<WarehouseTruckPhysicsController>();
 
         ConfigurableJoint joint;
-        if (!WarehouseTruckTrailerCoupler.Connect(tractorBody, fifthWheelPivot, trailerBody, kingpinPivot, out joint))
+        if (!WarehouseTruckTrailerCoupler.Connect(
+            tractorBody, fifthWheelPivot, trailerBody, kingpinPivot,
+            trailerCoupling.CouplingDistance, trailerCoupling.MaximumHeightDifference, out joint))
         {
             RemoveLorry();
             return;

@@ -30,6 +30,8 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     public bool IsCoupled => isCoupled;
     public Rigidbody ConnectedTractor => connectedTractor;
     public Transform KingpinPivot => kingpinPivot;
+    public float CouplingDistance => couplingDistance;
+    public float MaximumHeightDifference => maximumHeightDifference;
 
     private void Awake()
     {
@@ -123,7 +125,8 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
             return false;
 
         if (!WarehouseTruckTrailerCoupler.Connect(
-            tractorBody, fifthWheelPivot, trailerBody, kingpinPivot, out couplingJoint))
+            tractorBody, fifthWheelPivot, trailerBody, kingpinPivot,
+            couplingDistance, maximumHeightDifference, out couplingJoint))
         {
             reason = "The fifth-wheel joint could not be created. Check the Console.";
             return false;
