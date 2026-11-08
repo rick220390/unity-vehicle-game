@@ -26,6 +26,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     [SerializeField] private WSMVehiclePlayerInput vehicleInput;
     [SerializeField] private ForkliftPlayerInput forkliftInput;
     [SerializeField] private WSMVehicleCamera forkliftCamera;
+    [SerializeField] private Camera forkliftPhysicalCamera;
     [SerializeField] private WSMVehicleCameraPlayerInput forkliftCameraInput;
     [Tooltip("Optional camera look pivot. If empty, one is created at the forklift renderer bounds centre.")]
     [SerializeField] private Transform forkliftCameraTarget;
@@ -51,6 +52,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private readonly List<bool> scenePlayerCameraStates = new List<bool>();
     private bool cursorWasVisible;
     private bool forkliftCameraInputWasEnabled;
+    private bool forkliftPhysicalCameraWasEnabled;
     private CursorLockMode cursorLockWas;
     private void ConfigureCameraTags()
     {
@@ -89,6 +91,8 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         if (forkliftCamera != null)
         {
+            if (forkliftPhysicalCamera == null)
+                forkliftPhysicalCamera = forkliftCamera.GetComponent<Camera>();
             if (forkliftCameraInput == null)
                 forkliftCameraInput = forkliftCamera.GetComponent<WSMVehicleCameraPlayerInput>();
 
@@ -332,7 +336,21 @@ public class ForkliftPlayerInteractor : MonoBehaviour
                 forkliftCameraInput.enabled = false;
             }
 
+            // Activating the GameObject does not guarantee its Camera component is enabled.
             forkliftCamera.gameObject.SetActive(true);
+            if (forkliftPhysicalCamera == null)
+                forkliftPhysicalCamera = forkliftCamera.GetComponent<Camera>();
+            if (forkliftPhysicalCamera != null)
+            {
+                forkliftPhysicalCameraWasEnabled = forkliftPhysicalCamera.enabled;
+                forkliftPhysicalCamera.enabled = true;
+                forkliftPhysicalCamera.tag = "MainCamera";
+                forkliftPhysicalCamera.depth = 20f;
+            }
+            else
+                Debug.LogError("ForkliftPlayerInteractor: WSMVehicleCamera has no physical Camera component; it cannot render.", forkliftCamera);
+
+            forkliftCamera.enabled = true;
             forkliftCamera.MoveToStartPosition();
             forkliftCamera.HorizontalInput = 0f;
             forkliftCamera.VerticalInput = 0f;
@@ -455,7 +473,14 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         }
 
         if (forkliftCamera != null)
+        {
+            if (forkliftPhysicalCamera != null)
+            {
+                forkliftPhysicalCamera.enabled = forkliftPhysicalCameraWasEnabled;
+                forkliftPhysicalCamera.tag = "ForkliftCamera";
+            }
             forkliftCamera.gameObject.SetActive(false);
+        }
 
         // Restore Camera.main to the Invector player camera before re-enabling it.
         ConfigureCameraTags();
