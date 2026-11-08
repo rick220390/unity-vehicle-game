@@ -46,6 +46,16 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private bool playerCameraWasEnabled;
     private bool cursorWasVisible;
     private CursorLockMode cursorLockWas;
+    private void SetActiveCameraTags(bool forkliftIsActive)
+    {
+        // WSM's vehicle camera expects to be discoverable as Camera.main.
+        // Only one camera should carry MainCamera at a time.
+        if (playerCamera != null)
+            playerCamera.tag = forkliftIsActive ? "Untagged" : "MainCamera";
+
+        if (forkliftCamera != null)
+            forkliftCamera.tag = forkliftIsActive ? "MainCamera" : "Untagged";
+    }
 
     private void Awake()
     {
@@ -76,8 +86,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             if (forkliftCameraInput == null)
                 forkliftCameraInput = forkliftCamera.GetComponent<WSMVehicleCameraPlayerInput>();
 
-            // The WSM camera uses its own target and camera component. It must
-            // not compete with the Invector player camera for Camera.main.
+            // Keep the forklift camera out of Camera.main while the player is on foot.
             forkliftCamera.tag = "Untagged";
 
             // Keep the complete camera object off until a driver enters.
@@ -114,10 +123,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
                 playerCamera = playerCameraController.GetComponent<Camera>();
 
             // Keep the on-foot player camera as the only MainCamera.
-            if (playerCamera != null)
-                playerCamera.tag = "MainCamera";
-            else
+            if (playerCamera == null)
                 Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector; Camera.main is deliberately not used as a fallback.", this);
+
+            SetActiveCameraTags(false);
         }
 
         if (driverSeatPoint == null || driverExitPoint == null)
@@ -157,10 +166,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             playerCamera = playerCameraController.GetComponent<Camera>();
 
         // Do not use Camera.main here: it could resolve to the forklift camera.
-        if (playerCamera != null)
-            playerCamera.tag = "MainCamera";
-        else
+        if (playerCamera == null)
             Debug.LogWarning("ForkliftPlayerInteractor: Could not resolve the player's physical Camera from vThirdPersonCamera. Assign Player Camera in the Inspector.", this);
+
+        SetActiveCameraTags(false);
 
         Debug.Log("ForkliftPlayerInteractor: Player bound to spawned forklift: " + player.name, this);
     }
@@ -262,6 +271,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         player.localRotation = Quaternion.identity;
         player.localScale = originalLocalScale;
 
+        // Hand Camera.main over to WSM while driving. Its camera logic needs
+        // the MainCamera tag; the player camera is restored when exiting.
+        SetActiveCameraTags(true);
+
         // Prepare camera target before enabling the camera GameObject.
         if (forkliftCamera != null)
         {
@@ -349,6 +362,9 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         if (forkliftCamera != null)
             forkliftCamera.gameObject.SetActive(false);
+
+        // Restore Camera.main to the Invector player camera before re-enabling it.
+        SetActiveCameraTags(false);
 
         player.SetParent(originalParent, true);
         player.SetPositionAndRotation(exitPosition, exitRotation);
