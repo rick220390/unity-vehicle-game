@@ -8,14 +8,13 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
 {
-    private const float MaximumHorizontalAnchorMismatch = 0.2f;
-    private const float MaximumVerticalAnchorMismatch = 0.1f;
-
     public static bool Connect(
         Rigidbody tractorBody,
         Transform fifthWheelPivot,
         Rigidbody trailerBody,
         Transform kingpinPivot,
+        float maximumHorizontalMismatch,
+        float maximumVerticalMismatch,
         out ConfigurableJoint joint)
     {
         joint = null;
@@ -29,19 +28,19 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
 
         // Never reposition the trailer here. Silently shifting its root makes the
         // markers appear to be ignored and can put the kingpin below the fifth wheel.
-        // Both physical markers must already occupy the same world position.
+        // Both physical markers must already be within the configured seating tolerance.
         Vector3 markerOffset = fifthWheelPivot.position - kingpinPivot.position;
         float horizontalMismatch = new Vector2(markerOffset.x, markerOffset.z).magnitude;
         float verticalMismatch = Mathf.Abs(markerOffset.y);
-        if (horizontalMismatch > MaximumHorizontalAnchorMismatch ||
-            verticalMismatch > MaximumVerticalAnchorMismatch)
+        if (horizontalMismatch > maximumHorizontalMismatch ||
+            verticalMismatch > maximumVerticalMismatch)
         {
             Debug.LogError(
                 "WarehouseTruckTrailerCoupler: Markers are outside the seating tolerance. Horizontal=" +
                 horizontalMismatch.ToString("0.000") + "m (max " +
-                MaximumHorizontalAnchorMismatch.ToString("0.000") + "m), vertical=" +
+                maximumHorizontalMismatch.ToString("0.000") + "m), vertical=" +
                 verticalMismatch.ToString("0.000") + "m (max " +
-                MaximumVerticalAnchorMismatch.ToString("0.000") + "m). Fifth wheel world=" +
+                maximumVerticalMismatch.ToString("0.000") + "m). Fifth wheel world=" +
                 fifthWheelPivot.position.ToString("F3") + ", kingpin world=" +
                 kingpinPivot.position.ToString("F3") + ", delta=" + markerOffset.ToString("F3") +
                 ". Fifth-wheel reference: " + DescribeTransform(fifthWheelPivot) +
@@ -63,8 +62,7 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         joint.configuredInWorldSpace = false;
         joint.swapBodies = false;
 
-        // Store each marker in its own Rigidbody's local space. Since the markers
-        // were verified coincident above, the joint starts without an anchor error.
+        // Store each marker in its own Rigidbody's local space.
         joint.anchor = trailerBody.transform.InverseTransformPoint(kingpinPivot.position);
         joint.connectedAnchor = tractorBody.transform.InverseTransformPoint(fifthWheelPivot.position);
 
