@@ -23,12 +23,14 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
             return false;
         }
 
-        // Seat the kingpin exactly onto the fifth-wheel pivot BEFORE creating
-        // the joint. Merely creating a joint between separated world-space anchors
-        // makes PhysX pull the trailer into place in one solver step, which can
-        // launch the trailer or tractor. Move the trailer Rigidbody as a whole so
-        // the authored kingpin marker and the receiver pivot are coincident.
+        // Align only the horizontal position before creating the joint.
+        // Do NOT move the trailer vertically: its wheels/suspension must remain
+        // at their authored ride height. The joint's free local-Y axis accommodates
+        // the kingpin/fifth-wheel height difference without lifting or loading
+        // the tractor's rear suspension. The marker transforms still define the
+        // exact local anchor positions used below.
         Vector3 seatingOffset = fifthWheelPivot.position - kingpinPivot.position;
+        seatingOffset.y = 0f;
         trailerBody.position += seatingOffset;
         Physics.SyncTransforms();
 
