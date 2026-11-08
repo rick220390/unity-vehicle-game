@@ -10,6 +10,7 @@ using WSMGameStudio.HeavyMachinery;
 /// Attach this component to the forklift root.
 /// </summary>
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(10000)]
 public class ForkliftPlayerInteractor : MonoBehaviour
 {
     [Header("Player")]
@@ -30,6 +31,9 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     [SerializeField] private WSMVehicleCameraPlayerInput forkliftCameraInput;
     [Tooltip("Optional camera look pivot. If empty, one is created at the forklift renderer bounds centre.")]
     [SerializeField] private Transform forkliftCameraTarget;
+    [Tooltip("Parent this to the moving fork carriage, just behind and above the fork heels, facing forward and slightly down.")]
+    [SerializeField] private Transform forkViewCameraMount;
+    [SerializeField] private KeyCode forkViewToggleKey = KeyCode.V;
 
     [Header("Player camera")]
     [Tooltip("Usually the vThirdPersonCamera component on the player.")]
@@ -53,6 +57,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private bool cursorWasVisible;
     private bool forkliftCameraInputWasEnabled;
     private bool forkliftPhysicalCameraWasEnabled;
+    private bool forkViewActive;
     private CursorLockMode cursorLockWas;
     private void ConfigureCameraTags()
     {
@@ -252,15 +257,18 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         if (isOccupied)
         {
+            if (Input.GetKeyDown(forkViewToggleKey))
+                ToggleForkView();
+
             // Read mouse delta directly. The WSM input component can be configured
             // for its legacy keyboard-only mode, which silently ignores mouse look.
-            if (forkliftCamera != null && Mouse.current != null)
+            if (!forkViewActive && forkliftCamera != null && Mouse.current != null)
             {
                 Vector2 mouseDelta = Mouse.current.delta.ReadValue();
                 forkliftCamera.HorizontalInput = mouseDelta.x;
                 forkliftCamera.VerticalInput = -mouseDelta.y;
             }
-            else if (forkliftCamera != null)
+            else if (!forkViewActive && forkliftCamera != null)
             {
                 forkliftCamera.HorizontalInput = 0f;
                 forkliftCamera.VerticalInput = 0f;
@@ -279,6 +287,40 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         }
     }
 
+    // Run after WSM's LateUpdate so the fork-view mount controls the camera.
+    private void LateUpdate()
+    {
+        if (!isOccupied || !forkViewActive || forkliftPhysicalCamera == null || forkViewCameraMount == null)
+            return;
+
+        forkliftPhysicalCamera.transform.SetPositionAndRotation(forkViewCameraMount.position, forkViewCameraMount.rotation);
+    }
+
+    private void ToggleForkView()
+    {
+        if (forkViewCameraMount == null)
+        {
+            Debug.LogWarning("ForkliftPlayerInteractor: Assign Fork View Camera Mount to enable the precision fork camera.", this);
+            return;
+        }
+
+        forkViewActive = !forkViewActive;
+        if (forkliftCamera != null)
+            forkliftCamera.enabled = !forkViewActive;
+
+        if (forkViewActive)
+        {
+            if (forkliftPhysicalCamera != null)
+                forkliftPhysicalCamera.transform.SetPositionAndRotation(forkViewCameraMount.position, forkViewCameraMount.rotation);
+        }
+        else if (forkliftCamera != null)
+        {
+            forkliftCamera.Target = transform;
+            forkliftCamera.MoveToStartPosition();
+            forkliftCamera.HorizontalInput = 0f;
+            forkliftCamera.VerticalInput = 0f;
+        }
+    }
     private void EnterForklift()
     {
         if (isOccupied || player == null || driverSeatPoint == null) return;
@@ -290,6 +332,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         }
 
         isOccupied = true;
+        forkViewActive = false;
         originalParent = player.parent;
         originalLocalScale = player.localScale;
 
@@ -472,8 +515,10 @@ public class ForkliftPlayerInteractor : MonoBehaviour
             vehicleController.IsEngineOn = false;
         }
 
+        forkViewActive = false;
         if (forkliftCamera != null)
         {
+            forkliftCamera.enabled = true;
             if (forkliftPhysicalCamera != null)
             {
                 forkliftPhysicalCamera.enabled = forkliftPhysicalCameraWasEnabled;
@@ -565,7 +610,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         if (!isOccupied && inRange)
             DrawPrompt("[F] Operate forklift");
         else if (isOccupied)
-            DrawPrompt("[F] Exit forklift");
+            DrawPrompt(forkViewActive ? "[V] Driving view   [F] Exit forklift" : "[V] Fork view   [F] Exit forklift");
     }
 
     private static void DrawPrompt(string message)
