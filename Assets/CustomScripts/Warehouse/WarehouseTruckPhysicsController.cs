@@ -21,8 +21,11 @@ public sealed class WarehouseTruckPhysicsController : MonoBehaviour
     [SerializeField, Min(1f)] private float maximumSteerAngle = 32f;
     [SerializeField, Min(100f)] private float motorTorquePerWheel = 1800f;
     [SerializeField, Min(100f)] private float serviceBrakeTorque = 5000f;
-    [SerializeField, Min(0.1f)] private float steeringSensitivity = 2f;
+    [SerializeField, Min(0.1f)] private float steeringSensitivity = 1f;
     [SerializeField, Min(0.1f)] private float waypointSlowdownDistance = 5f;
+    [SerializeField, Min(1f)] private float minimumCornerSpeedKph = 3f;
+    [SerializeField, Range(10f, 90f)] private float fullCorneringAngle = 65f;
+    [SerializeField, Min(1f)] private float steeringRateDegreesPerSecond = 55f;
 
     private Transform target;
     private bool reversing;
@@ -142,17 +145,36 @@ public sealed class WarehouseTruckPhysicsController : MonoBehaviour
             return;
         }
 
-        Vector3 localTarget = transform.InverseTransformDirection(toTarget.normalized);
-        float steering = Mathf.Atan2(localTarget.x, Mathf.Abs(localTarget.z)) * Mathf.Rad2Deg;
-        if (reversing)
-            steering = -steering;
+        // Steer toward the waypoint using a signed heading angle. Unlike the
+        // previous Abs(localTarget.z) calculation, this preserves whether the
+        // waypoint is ahead or behind the tractor.
+        Vector3 desiredTravelDirection = reversing ? -truckBody.transform.forward : truckBody.transform.forward;
+        float headingError = Vector3.SignedAngle(
+            desiredTravelDirection,
+            toTarget.normalized,
+            Vector3.up);
 
-        steering = Mathf.Clamp(steering * steeringSensitivity, -maximumSteerAngle, maximumSteerAngle);
+        float steering = Mathf.Clamp(
+            headingError * steeringSensitivity,
+            -maximumSteerAngle,
+            maximumSteerAngle);
+
+        // Smooth steering changes to prevent the AI snapping to full lock.
         foreach (WheelCollider wheel in steeringWheels)
-            if (wheel != null) wheel.steerAngle = steering;
+        {
+            if (wheel == null) continue;
+            wheel.steerAngle = Mathf.MoveTowards(
+                wheel.steerAngle,
+                steering,
+                steeringRateDegreesPerSecond * Time.fixedDeltaTime);
+        }
 
         float distance = toTarget.magnitude;
-        float targetSpeed = requestedSpeedKph;
+        float cornerFactor = Mathf.Clamp01(
+            Mathf.Abs(headingError) / Mathf.Max(1f, fullCorneringAngle));
+        float targetSpeed = Mathf.Lerp(requestedSpeedKph, minimumCornerSpeedKph, cornerFactor);
+
+        // Also slow down as the tractor approaches the current waypoint.
         if (distance < waypointSlowdownDistance)
             targetSpeed *= Mathf.Clamp01(distance / waypointSlowdownDistance);
 
