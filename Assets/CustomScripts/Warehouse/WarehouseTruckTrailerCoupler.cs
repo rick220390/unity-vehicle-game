@@ -39,14 +39,19 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         joint.secondaryAxis = Vector3.up;
 
         joint.xMotion = ConfigurableJointMotion.Locked;
-        // Let the trailer move vertically relative to the fifth wheel. This prevents
-        // a mismatched pivot height from lifting the trailer and unloading its wheels.
-        // The tractor still pulls it horizontally and controls its yaw articulation.
-        joint.yMotion = ConfigurableJointMotion.Free;
+        // Lock all translation at the fifth wheel. A free vertical axis lets the
+        // trailer drop/bounce independently and can destabilise the whole rig.
+        // Require close pivot alignment before connecting so these locks do not snap.
+        joint.yMotion = ConfigurableJointMotion.Locked;
         joint.zMotion = ConfigurableJointMotion.Locked;
-        joint.angularXMotion = ConfigurableJointMotion.Locked;
+        // Allow articulation around the vertical axis (yaw), while permitting a
+        // small amount of pitch and roll for uneven ground without free tipping.
+        joint.angularXMotion = ConfigurableJointMotion.Limited;
         joint.angularYMotion = ConfigurableJointMotion.Free;
-        joint.angularZMotion = ConfigurableJointMotion.Locked;
+        joint.angularZMotion = ConfigurableJointMotion.Limited;
+        joint.lowAngularXLimit = new SoftJointLimit { limit = -8f };
+        joint.highAngularXLimit = new SoftJointLimit { limit = 8f };
+        joint.angularZLimit = new SoftJointLimit { limit = 8f };
 
         joint.enableCollision = false;
         joint.enablePreprocessing = true;
