@@ -1715,6 +1715,26 @@ public class Vehicle : MonoBehaviour
 #endif
     }
 
+    private void OnDrawGizmosSelected()
+    {
+        Rigidbody body = GetComponent<Rigidbody>();
+        if (body == null)
+            return;
+
+        // In Play mode Awake has already applied centerOfMassOffset.
+        // In Edit mode, add the configured offset to Unity's calculated centre.
+        Vector3 localCentreOfMass = Application.isPlaying
+            ? body.centerOfMass
+            : body.centerOfMass + centerOfMassOffset;
+
+        Vector3 worldCentreOfMass = transform.TransformPoint(localCentreOfMass);
+
+        Gizmos.color = Color.red;
+        Gizmos.DrawSphere(worldCentreOfMass, 0.12f);
+        Gizmos.DrawWireSphere(worldCentreOfMass, 0.18f);
+        Gizmos.DrawLine(worldCentreOfMass, worldCentreOfMass + Vector3.up * 0.35f);
+    }
+
     private void OnDestroy()
     {
         StopWheelTorque();
