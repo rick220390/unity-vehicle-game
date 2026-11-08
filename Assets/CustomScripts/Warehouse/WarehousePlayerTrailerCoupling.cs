@@ -26,12 +26,26 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
     private ConfigurableJoint couplingJoint;
     private Rigidbody connectedTractor;
     private bool isCoupled;
+    private WarehouseTrailerDockingBay dockingBay;
 
     public bool IsCoupled => isCoupled;
     public Rigidbody ConnectedTractor => connectedTractor;
     public Transform KingpinPivot => kingpinPivot;
     public float CouplingDistance => couplingDistance;
     public float MaximumHeightDifference => maximumHeightDifference;
+    public bool IsDocking => dockingBay != null && dockingBay.IsDocking;
+    public bool IsDocked => dockingBay != null && dockingBay.IsDocked;
+
+    public void SetDockingBay(WarehouseTrailerDockingBay bay)
+    {
+        dockingBay = bay;
+    }
+
+    public void ClearDockingBay(WarehouseTrailerDockingBay bay)
+    {
+        if (dockingBay == bay)
+            dockingBay = null;
+    }
 
     private void Awake()
     {
@@ -50,6 +64,12 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         if (isCoupled)
         {
             reason = "Trailer is already coupled.";
+            return false;
+        }
+
+        if (dockingBay != null && !dockingBay.IsDocked)
+        {
+            reason = "Wait for the trailer to finish positioning in the loading bay before coupling.";
             return false;
         }
 
@@ -131,6 +151,12 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
             reason = "The fifth-wheel joint could not be created. Check the Console.";
             return false;
         }
+
+        // Only release the loading-bay hold after the fifth-wheel joint has
+        // been created successfully. A failed coupling attempt leaves the
+        // trailer safely docked and stationary.
+        if (dockingBay != null)
+            dockingBay.ReleaseForCoupling(this);
 
         connectedTractor = tractorBody;
         isCoupled = true;
