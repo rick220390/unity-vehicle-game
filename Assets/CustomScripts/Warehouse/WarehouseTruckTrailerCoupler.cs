@@ -99,4 +99,18 @@ public sealed class WarehouseTruckTrailerCoupler : MonoBehaviour
         trailerBody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         return true;
     }
+    private static string DescribeTransform(Transform item)
+    {
+        if (item == null)
+            return "<null>";
+
+        string parentName = item.parent != null ? item.parent.name : "<root>";
+        return "name='" + item.name +
+               "', parent='" + parentName +
+               "', position=" + item.position.ToString("F3") +
+               ", localPosition=" + item.localPosition.ToString("F3") +
+               ", rotation=" + item.rotation.eulerAngles.ToString("F1") +
+               ", localScale=" + item.localScale.ToString("F3");
+    }
+
 }
