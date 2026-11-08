@@ -71,17 +71,32 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         }
 
         Vector3 pivotOffset = fifthWheelPivot.position - kingpinPivot.position;
-        float markerSeparation = pivotOffset.magnitude;
+        float horizontalSeparation = Vector2.Distance(
+            new Vector2(fifthWheelPivot.position.x, fifthWheelPivot.position.z),
+            new Vector2(kingpinPivot.position.x, kingpinPivot.position.z));
+        float heightSeparation = Mathf.Abs(pivotOffset.y);
 
-        // A rigid fifth-wheel joint must begin with its two anchors almost coincident.
-        // A loose approach tolerance lets the joint yank the kingpin toward the plate.
-        const float maximumMarkerSeparation = 0.03f;
-        if (markerSeparation > maximumMarkerSeparation)
+        // Use the approach tolerances exposed in the Inspector. The old code
+        // ignored these fields and imposed an unrelated 3cm full-3D gate,
+        // which made normal player coupling fail even inside the configured zone.
+        if (horizontalSeparation > couplingDistance ||
+            heightSeparation > maximumHeightDifference)
         {
-            reason = "Coupling markers are " + markerSeparation.ToString("0.000") +
-                     "m apart (maximum " + maximumMarkerSeparation.ToString("0.000") +
-                     "m). Align the kingpin directly over the fifth-wheel pivot.";
-            Debug.LogWarning("WarehousePlayerTrailerCoupling: " + reason, this);
+            reason = "Kingpin alignment is outside the coupling zone. Horizontal: " +
+                     horizontalSeparation.ToString("0.000") + "m / " +
+                     couplingDistance.ToString("0.000") + "m; height: " +
+                     heightSeparation.ToString("0.000") + "m / " +
+                     maximumHeightDifference.ToString("0.000") + "m.";
+            Debug.LogWarning(
+                "WarehousePlayerTrailerCoupling: " + reason +
+                " Fifth-wheel world=" + fifthWheelPivot.position.ToString("F3") +
+                ", kingpin world=" + kingpinPivot.position.ToString("F3") +
+                ", delta=" + pivotOffset.ToString("F3") +
+                ". Fifth-wheel path=" + GetHierarchyPath(fifthWheelPivot) +
+                ", kingpin path=" + GetHierarchyPath(kingpinPivot) +
+                ", tractor Rigidbody=" + tractorBody.position.ToString("F3") +
+                ", trailer Rigidbody=" + trailerBody.position.ToString("F3") + ".",
+                this);
             return false;
         }
 
@@ -153,6 +168,19 @@ public sealed class WarehousePlayerTrailerCoupling : MonoBehaviour
         reason = "Trailer uncoupled.";
         Debug.Log("WarehousePlayerTrailerCoupling: Trailer uncoupled; landing-leg supports enabled.", this);
         return true;
+    }
+
+    private static string GetHierarchyPath(Transform item)
+    {
+        if (item == null) return "<null>";
+        string path = item.name;
+        Transform parent = item.parent;
+        while (parent != null)
+        {
+            path = parent.name + "/" + path;
+            parent = parent.parent;
+        }
+        return path;
     }
 
     private void SetLandingLegSupport(bool supportsTrailer)
