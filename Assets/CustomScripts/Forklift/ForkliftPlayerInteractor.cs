@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using WSMGameStudio.Vehicles;
 using WSMGameStudio.HeavyMachinery;
 
@@ -47,6 +48,7 @@ public class ForkliftPlayerInteractor : MonoBehaviour
     private bool playerCameraControllerWasEnabled;
     private bool playerCameraWasEnabled;
     private bool cursorWasVisible;
+    private bool forkliftCameraInputWasEnabled;
     private CursorLockMode cursorLockWas;
     private void ConfigureCameraTags()
     {
@@ -217,6 +219,20 @@ public class ForkliftPlayerInteractor : MonoBehaviour
 
         if (isOccupied)
         {
+            // Read mouse delta directly. The WSM input component can be configured
+            // for its legacy keyboard-only mode, which silently ignores mouse look.
+            if (forkliftCamera != null && Mouse.current != null)
+            {
+                Vector2 mouseDelta = Mouse.current.delta.ReadValue();
+                forkliftCamera.HorizontalInput = mouseDelta.x;
+                forkliftCamera.VerticalInput = -mouseDelta.y;
+            }
+            else if (forkliftCamera != null)
+            {
+                forkliftCamera.HorizontalInput = 0f;
+                forkliftCamera.VerticalInput = 0f;
+            }
+
             if (Input.GetKeyDown(interactKey))
                 ExitForklift();
             return;
@@ -277,12 +293,25 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         // Legacy mode ignores mouse input and only responds to look-direction buttons.
         if (forkliftCamera != null)
         {
+            // WSM's rear camera expects the vehicle root (including its Rigidbody)
+            // as Target. A renderer-centre child has no Rigidbody and is not a valid
+            // vehicle target for its speed/framing calculations.
             forkliftCamera.CameraMode = WSMVehicleCameraMode.Enhanced;
-            forkliftCamera.Target = ResolveForkliftCameraTarget();
+            forkliftCamera.CameraCollision = false;
+            forkliftCamera.Target = transform;
+
+            // Disable WSM's own input reader to prevent its Legacy mode from
+            // overwriting the mouse values with zero every frame.
+            if (forkliftCameraInput != null)
+            {
+                forkliftCameraInputWasEnabled = forkliftCameraInput.enabled;
+                forkliftCameraInput.enabled = false;
+            }
+
             forkliftCamera.gameObject.SetActive(true);
             forkliftCamera.MoveToStartPosition();
-            if (forkliftCameraInput != null)
-                forkliftCameraInput.enablePlayerInput = true;
+            forkliftCamera.HorizontalInput = 0f;
+            forkliftCamera.VerticalInput = 0f;
         }
 
         vehicleController.IsEngineOn = true;
@@ -385,7 +414,11 @@ public class ForkliftPlayerInteractor : MonoBehaviour
         // Lock inputs before restoring the player.
         if (vehicleInput != null) vehicleInput.enablePlayerInput = false;
         if (forkliftInput != null) forkliftInput.enablePlayerInput = false;
-        if (forkliftCameraInput != null) forkliftCameraInput.enablePlayerInput = false;
+        if (forkliftCameraInput != null)
+        {
+            forkliftCameraInput.enablePlayerInput = false;
+            forkliftCameraInput.enabled = forkliftCameraInputWasEnabled;
+        }
 
         if (vehicleController != null)
         {
