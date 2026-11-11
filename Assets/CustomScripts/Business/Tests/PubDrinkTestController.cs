@@ -13,6 +13,9 @@ public class PubDrinkTestController : MonoBehaviour
     [SerializeField] private bool createTestKegOnStart = true;
 
     private string statusMessage = "Ready. Assign a drink definition to begin.";
+    private CursorLockMode previousCursorLockState;
+    private bool previousCursorVisible;
+    private bool cursorStateCaptured;
 
     private void Start()
     {
@@ -94,6 +97,32 @@ public class PubDrinkTestController : MonoBehaviour
         GUILayout.Label("This panel is for Play Mode testing only.");
 
         GUILayout.EndArea();
+    }
+
+    private void LateUpdate()
+    {
+        if (!Application.isPlaying)
+            return;
+
+        if (!cursorStateCaptured)
+        {
+            previousCursorLockState = Cursor.lockState;
+            previousCursorVisible = Cursor.visible;
+            cursorStateCaptured = true;
+        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    private void OnDisable()
+    {
+        if (!cursorStateCaptured)
+            return;
+
+        Cursor.lockState = previousCursorLockState;
+        Cursor.visible = previousCursorVisible;
+        cursorStateCaptured = false;
     }
 
     private void LoadTestKeg()
