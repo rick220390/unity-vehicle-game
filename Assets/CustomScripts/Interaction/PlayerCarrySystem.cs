@@ -10,6 +10,7 @@ public class PlayerCarrySystem : MonoBehaviour
     [Header("Interaction Settings")]
     public float interactionDistance = 2.5f;
     public KeyCode interactKey = KeyCode.E;
+    public KeyCode disconnectKey = KeyCode.R;
 
     [Header("Keg Placement")]
     [Tooltip("Maximum distance from the player to a keg placement point.")]
@@ -48,6 +49,9 @@ public class PlayerCarrySystem : MonoBehaviour
 
         if (Input.GetKeyDown(interactKey))
             HandleInteraction();
+
+        if (Input.GetKeyDown(disconnectKey))
+            HandleDisconnectInteraction();
 
         if (carriedObject != null && carryPoint != null)
         {
@@ -117,7 +121,7 @@ public class PlayerCarrySystem : MonoBehaviour
             if (tap != null && tap.HasKeg)
             {
                 currentInteractionPrompt = tap.ConnectedKeg.IsConnected
-                    ? "E - Disconnect " + tap.TapName
+                    ? "E - Pour pint    |    R - Disconnect " + tap.TapName
                     : "E - Connect " + tap.TapName;
                 return;
             }
@@ -166,8 +170,10 @@ public class PlayerCarrySystem : MonoBehaviour
             {
                 if (tap.ConnectedKeg.IsConnected)
                 {
-                    tap.DisconnectKeg();
-                    Debug.Log("Carry System: Disconnected the keg from the beer tap. The keg remains installed in its holder.");
+                    if (tap.TryPourPint(out float salePrice))
+                        Debug.Log($"Carry System: Poured a pint. Sale recorded: {salePrice:0.00}.");
+                    else
+                        Debug.Log("Carry System: Could not pour a pint. Check that the keg is connected and contains beer.");
                 }
                 else if (tap.ConnectKeg())
                 {
@@ -179,6 +185,31 @@ public class PlayerCarrySystem : MonoBehaviour
         }
 
         Debug.Log("Carry System: Nothing interactable found.");
+    }
+
+    private void HandleDisconnectInteraction()
+    {
+        if (carriedObject != null || !TryGetLookHits(out RaycastHit[] hits))
+            return;
+
+        foreach (RaycastHit hit in hits)
+        {
+            BeerTap tap = hit.collider.GetComponentInParent<BeerTap>();
+            if (tap == null || !tap.HasKeg)
+                continue;
+
+            if (tap.ConnectedKeg.IsConnected)
+            {
+                tap.DisconnectKeg();
+                Debug.Log("Carry System: Disconnected the keg from the beer tap. The keg remains installed in its holder.");
+            }
+            else
+            {
+                Debug.Log("Carry System: This keg is already disconnected.");
+            }
+
+            return;
+        }
     }
 
     public bool TryPlaceCarriedKegAt(KegPlacementPoint placementPoint)
