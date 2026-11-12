@@ -12,7 +12,7 @@ public class PlayerCarrySystem : MonoBehaviour
     public KeyCode interactKey = KeyCode.E;
 
     [Header("Keg Placement")]
-    [Tooltip("How close the player must be to a keg placement point. Placement no longer requires precise camera aiming.")]
+    [Tooltip("Maximum distance from the player to a keg placement point.")]
     public float kegPlacementDetectionRadius = 2.25f;
 
     private CarryableObject carriedObject;
@@ -20,8 +20,33 @@ public class PlayerCarrySystem : MonoBehaviour
     private bool[] originalColliderStates;
     private bool originalIsKinematic;
 
+    private IPlayerInteractable currentInteractable;
+
+    /// <summary>Currently available interaction. UI can read this later to show prompts.</summary>
+    public IPlayerInteractable CurrentInteractable => currentInteractable;
+
+    /// <summary>Text for a future on-screen interaction prompt.</summary>
+    public string CurrentInteractionPrompt =>
+        currentInteractable != null && currentInteractable.CanInteract(this)
+            ? currentInteractable.GetInteractionPrompt(this)
+            : string.Empty;
+
+    public PhysicalKeg CarriedPhysicalKeg
+    {
+        get
+        {
+            if (carriedObject == null)
+                return null;
+
+            PhysicalKeg keg = carriedObject.GetComponent<PhysicalKeg>();
+            return keg != null ? keg : carriedObject.GetComponentInChildren<PhysicalKeg>();
+        }
+    }
+
     private void Update()
     {
+        UpdateCurrentInteractable();
+
         if (Input.GetKeyDown(interactKey))
             HandleInteraction();
 
@@ -32,21 +57,32 @@ public class PlayerCarrySystem : MonoBehaviour
         }
     }
 
+    private void UpdateCurrentInteractable()
+    {
+        currentInteractable = null;
+
+        // For now, the first implemented interactable is an available keg placement point.
+        // Later, this same target can drive prompts and highlighting for every object.
+        if (CarriedPhysicalKeg == null)
+            return;
+
+        KegPlacementPoint point = FindNearbyKegPlacementPoint();
+        if (point != null && point.CanInteract(this))
+            currentInteractable = point;
+    }
+
     private void HandleInteraction()
     {
         if (carriedObject != null)
         {
-            // Kegs are placed with a proximity check. Pressing E while carrying
-            // a keg will not accidentally drop it when no placement point is nearby.
-            PhysicalKeg carriedKeg = GetCarriedPhysicalKeg();
-            if (carriedKeg != null)
+            if (CarriedPhysicalKeg != null)
             {
-                TryPlaceCarriedKeg(carriedKeg);
+                if (currentInteractable != null && currentInteractable.CanInteract(this))
+                    currentInteractable.Interact(this);
+                else
+                    Debug.Log("Carry System: No valid keg placement point nearby. Move closer to an available position.");
                 return;
             }
-
-            if (TryPlaceCarriedKeg(null))
-                return;
 
             DropObject();
             return;
@@ -92,42 +128,16 @@ public class PlayerCarrySystem : MonoBehaviour
         Debug.Log("Carry System: Nothing interactable found.");
     }
 
-    private PhysicalKeg GetCarriedPhysicalKeg()
+    /// <summary>Called by an interactable placement point after it has secured the keg.</summary>
+    public bool TryPlaceCarriedKegAt(KegPlacementPoint placementPoint)
     {
-        if (carriedObject == null)
-            return null;
-
-        PhysicalKeg keg = carriedObject.GetComponent<PhysicalKeg>();
-        if (keg == null)
-            keg = carriedObject.GetComponentInChildren<PhysicalKeg>();
-
-        return keg;
-    }
-
-    private bool TryPlaceCarriedKeg(PhysicalKeg physicalKeg)
-    {
-        if (carriedObject == null)
+        PhysicalKeg keg = CarriedPhysicalKeg;
+        if (carriedObject == null || keg == null || placementPoint == null ||
+            !placementPoint.CanInteract(this))
             return false;
 
-        if (physicalKeg == null)
-            physicalKeg = GetCarriedPhysicalKeg();
-
-        // Keep the old method available for any future non-keg placement types.
-        if (physicalKeg == null)
+        if (!placementPoint.TryPlaceKeg(keg))
             return false;
-
-        KegPlacementPoint placementPoint = FindNearbyKegPlacementPoint();
-        if (placementPoint == null)
-        {
-            Debug.Log("Carry System: No keg placement point nearby. Move closer to the anchor.");
-            return false;
-        }
-
-        if (!placementPoint.TryPlaceKeg(physicalKeg))
-        {
-            Debug.Log("Carry System: Keg placement failed. The keg is still being carried.");
-            return false;
-        }
 
         RestoreCarriedColliders();
 
@@ -135,9 +145,9 @@ public class PlayerCarrySystem : MonoBehaviour
             carriedObject.rb.isKinematic = true;
 
         carriedObject.SetPlaced(true);
-
         Debug.Log("Carry System: Keg placed successfully. Look at its beer tap and press E to connect it.");
         ClearCarriedObject();
+        currentInteractable = null;
         return true;
     }
 
@@ -163,7 +173,7 @@ public class PlayerCarrySystem : MonoBehaviour
                 continue;
 
             KegPlacementPoint point = nearbyCollider.GetComponentInParent<KegPlacementPoint>();
-            if (point == null || point.IsOccupied || !checkedPoints.Add(point))
+            if (point == null || !checkedPoints.Add(point))
                 continue;
 
             float distance = Vector3.Distance(searchCentre, nearbyCollider.ClosestPoint(searchCentre));
@@ -196,7 +206,6 @@ public class PlayerCarrySystem : MonoBehaviour
 
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-        // Ignore colliders belonging to the player.
         int validCount = 0;
         for (int i = 0; i < hits.Length; i++)
         {
