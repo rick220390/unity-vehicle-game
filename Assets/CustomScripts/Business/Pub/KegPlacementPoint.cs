@@ -64,8 +64,13 @@ public class KegPlacementPoint : MonoBehaviour, IPlayerInteractable
 
         if (kegBody != null)
         {
-            kegBody.velocity = Vector3.zero;
-            kegBody.angularVelocity = Vector3.zero;
+            // A carried keg is already kinematic, so only clear velocity while physics is active.
+            if (!kegBody.isKinematic)
+            {
+                kegBody.velocity = Vector3.zero;
+                kegBody.angularVelocity = Vector3.zero;
+            }
+
             kegBody.isKinematic = true;
         }
 
