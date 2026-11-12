@@ -71,21 +71,29 @@ public class PlayerCarrySystem : MonoBehaviour
         style.alignment = TextAnchor.MiddleCenter;
         style.padding = new RectOffset(16, 16, 8, 8);
 
-        float width = Mathf.Max(220f, style.CalcSize(new GUIContent(currentInteractionPrompt)).x + 32f);
+        string displayText = currentInteractionPrompt;
+        if (!string.IsNullOrEmpty(currentKegInfo))
+            displayText = string.IsNullOrEmpty(displayText)
+                ? currentKegInfo
+                : currentKegInfo + "\n" + displayText;
+
+        float width = Mathf.Max(260f, style.CalcSize(new GUIContent(displayText)).x + 32f);
+        float height = string.IsNullOrEmpty(currentKegInfo) ? 42f : 86f;
         Rect promptRect = new Rect(
             (Screen.width - width) * 0.5f,
             Screen.height * 0.68f,
             width,
-            42f
+            height
         );
 
-        GUI.Box(promptRect, currentInteractionPrompt, style);
+        GUI.Box(promptRect, displayText, style);
     }
 
     private void UpdateCurrentInteractable()
     {
         currentInteractable = null;
         currentInteractionPrompt = string.Empty;
+        currentKegInfo = string.Empty;
 
         if (carriedObject != null)
         {
