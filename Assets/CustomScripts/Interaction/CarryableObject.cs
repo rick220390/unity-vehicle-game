@@ -11,11 +11,16 @@ public class CarryableObject : MonoBehaviour
 
     public Rigidbody rb;
 
+    public bool IsPlaced { get; private set; }
+
     private void Awake()
     {
         if (rb == null)
-        {
             rb = GetComponent<Rigidbody>();
-        }
+    }
+
+    public void SetPlaced(bool placed)
+    {
+        IsPlaced = placed;
     }
 }
