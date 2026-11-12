@@ -1,10 +1,11 @@
 using UnityEngine;
 
 /// <summary>
-/// A fixed position behind the bar where a physical keg can be installed.
-/// The placement point registers the keg with its beer tap and secures its physics.
+/// A fixed position where a physical keg can be installed.
+/// It implements the shared interaction contract so the player can later
+/// display prompts and highlighting without keg-specific UI code.
 /// </summary>
-public class KegPlacementPoint : MonoBehaviour
+public class KegPlacementPoint : MonoBehaviour, IPlayerInteractable
 {
     [Header("Keg Position")]
     [SerializeField] private BeerTap targetTap;
@@ -15,6 +16,28 @@ public class KegPlacementPoint : MonoBehaviour
     public bool IsOccupied => installedKeg != null;
     public BeerTap TargetTap => targetTap;
 
+    public bool CanInteract(PlayerCarrySystem player)
+    {
+        if (player == null || player.CarriedPhysicalKeg == null || IsOccupied || targetTap == null)
+            return false;
+
+        // A tap that already has a keg loaded cannot accept another one.
+        return !targetTap.HasKeg;
+    }
+
+    public string GetInteractionPrompt(PlayerCarrySystem player)
+    {
+        return "E - Place keg";
+    }
+
+    public void Interact(PlayerCarrySystem player)
+    {
+        if (!CanInteract(player))
+            return;
+
+        player.TryPlaceCarriedKegAt(this);
+    }
+
     public bool TryPlaceKeg(PhysicalKeg keg)
     {
         if (keg == null || keg.Drink == null || targetTap == null || IsOccupied)
@@ -23,7 +46,6 @@ public class KegPlacementPoint : MonoBehaviour
             return false;
         }
 
-        // Register the drink before changing the physical keg's state.
         if (!targetTap.LoadKeg(keg.Drink))
         {
             Debug.LogWarning("Keg Placement: The beer tap rejected this keg.", this);
@@ -32,7 +54,6 @@ public class KegPlacementPoint : MonoBehaviour
 
         Transform anchor = placementAnchor != null ? placementAnchor : transform;
 
-        // Stop physics before parenting and snapping the keg into its final position.
         Rigidbody kegBody = keg.GetComponent<Rigidbody>();
         if (kegBody == null)
         {
