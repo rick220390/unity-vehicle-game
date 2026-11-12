@@ -15,6 +15,7 @@ public class KegPlacementPoint : MonoBehaviour, IPlayerInteractable
 
     public bool IsOccupied => installedKeg != null;
     public BeerTap TargetTap => targetTap;
+    public PhysicalKeg InstalledKeg => installedKeg;
 
     public bool CanInteract(PlayerCarrySystem player)
     {
