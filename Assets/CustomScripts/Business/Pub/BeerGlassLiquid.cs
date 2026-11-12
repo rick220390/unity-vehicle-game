@@ -133,13 +133,13 @@ public class BeerGlassLiquid : MonoBehaviour
 
             // Bottom cap, facing down.
             triangles[triangleIndex++] = bottomCenter;
-            triangles[triangleIndex++] = bottomB;
             triangles[triangleIndex++] = bottomA;
+            triangles[triangleIndex++] = bottomB;
 
             // Top surface, facing up.
             triangles[triangleIndex++] = topCenter;
-            triangles[triangleIndex++] = topA;
             triangles[triangleIndex++] = topB;
+            triangles[triangleIndex++] = topA;
         }
 
         liquidMesh.Clear();
