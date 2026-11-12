@@ -27,6 +27,7 @@ public class PlayerCarrySystem : MonoBehaviour
 
     private IPlayerInteractable currentInteractable;
     private string currentInteractionPrompt = string.Empty;
+    private string currentKegInfo = string.Empty;
 
     public IPlayerInteractable CurrentInteractable => currentInteractable;
     public string CurrentInteractionPrompt => currentInteractionPrompt;
@@ -62,7 +63,7 @@ public class PlayerCarrySystem : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!showTestInteractionPrompt || string.IsNullOrEmpty(currentInteractionPrompt))
+        if (!showTestInteractionPrompt || (string.IsNullOrEmpty(currentInteractionPrompt) && string.IsNullOrEmpty(currentKegInfo)))
             return;
 
         GUIStyle style = new GUIStyle(GUI.skin.box);
@@ -110,6 +111,29 @@ public class PlayerCarrySystem : MonoBehaviour
 
         foreach (RaycastHit hit in hits)
         {
+            PhysicalKeg physicalKeg = hit.collider.GetComponentInParent<PhysicalKeg>();
+            if (physicalKeg != null && physicalKeg.IsInstalled)
+            {
+                KegPlacementPoint placementPoint = physicalKeg.GetComponentInParent<KegPlacementPoint>();
+                if (placementPoint != null && placementPoint.TargetTap != null &&
+                    placementPoint.TargetTap.HasKeg)
+                {
+                    KegInstance keg = placementPoint.TargetTap.ConnectedKeg;
+                    DrinkDefinition drink = keg.Drink;
+                    if (drink != null)
+                    {
+                        float remainingPints = drink.PintSizeLitres > 0f
+                            ? keg.RemainingLitres / drink.PintSizeLitres
+                            : 0f;
+
+                        currentKegInfo =
+                            drink.ProductName + " Keg\n" +
+                            $"{keg.RemainingLitres:0.00} L remaining / {keg.OriginalCapacityLitres:0.00} L\n" +
+                            $"Approximately {remainingPints:0} pints left ({keg.RemainingPercentage:0}%)";
+                    }
+                }
+            }
+
             CarryableObject target = hit.collider.GetComponentInParent<CarryableObject>();
             if (target != null && !target.IsPlaced)
             {
