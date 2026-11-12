@@ -15,21 +15,20 @@ public class PlayerCarrySystem : MonoBehaviour
     [Tooltip("Maximum distance from the player to a keg placement point.")]
     public float kegPlacementDetectionRadius = 2.25f;
 
+    [Header("Test Interaction UI")]
+    [Tooltip("Show a simple on-screen prompt while testing interactions.")]
+    public bool showTestInteractionPrompt = true;
+
     private CarryableObject carriedObject;
     private Collider[] carriedColliders;
     private bool[] originalColliderStates;
     private bool originalIsKinematic;
 
     private IPlayerInteractable currentInteractable;
+    private string currentInteractionPrompt = string.Empty;
 
-    /// <summary>Currently available interaction. UI can read this later to show prompts.</summary>
     public IPlayerInteractable CurrentInteractable => currentInteractable;
-
-    /// <summary>Text for a future on-screen interaction prompt.</summary>
-    public string CurrentInteractionPrompt =>
-        currentInteractable != null && currentInteractable.CanInteract(this)
-            ? currentInteractable.GetInteractionPrompt(this)
-            : string.Empty;
+    public string CurrentInteractionPrompt => currentInteractionPrompt;
 
     public PhysicalKeg CarriedPhysicalKeg
     {
@@ -57,18 +56,72 @@ public class PlayerCarrySystem : MonoBehaviour
         }
     }
 
+    private void OnGUI()
+    {
+        if (!showTestInteractionPrompt || string.IsNullOrEmpty(currentInteractionPrompt))
+            return;
+
+        GUIStyle style = new GUIStyle(GUI.skin.box);
+        style.fontSize = 18;
+        style.alignment = TextAnchor.MiddleCenter;
+        style.padding = new RectOffset(16, 16, 8, 8);
+
+        float width = Mathf.Max(220f, style.CalcSize(new GUIContent(currentInteractionPrompt)).x + 32f);
+        Rect promptRect = new Rect(
+            (Screen.width - width) * 0.5f,
+            Screen.height * 0.68f,
+            width,
+            42f
+        );
+
+        GUI.Box(promptRect, currentInteractionPrompt, style);
+    }
+
     private void UpdateCurrentInteractable()
     {
         currentInteractable = null;
+        currentInteractionPrompt = string.Empty;
 
-        // For now, the first implemented interactable is an available keg placement point.
-        // Later, this same target can drive prompts and highlighting for every object.
-        if (CarriedPhysicalKeg == null)
+        if (carriedObject != null)
+        {
+            if (CarriedPhysicalKeg != null)
+            {
+                KegPlacementPoint point = FindNearbyKegPlacementPoint();
+                if (point != null && point.CanInteract(this))
+                {
+                    currentInteractable = point;
+                    currentInteractionPrompt = point.GetInteractionPrompt(this);
+                }
+            }
+            else
+            {
+                currentInteractionPrompt = "E - Drop " + carriedObject.name;
+            }
+
+            return;
+        }
+
+        if (!TryGetLookHits(out RaycastHit[] hits))
             return;
 
-        KegPlacementPoint point = FindNearbyKegPlacementPoint();
-        if (point != null && point.CanInteract(this))
-            currentInteractable = point;
+        foreach (RaycastHit hit in hits)
+        {
+            CarryableObject target = hit.collider.GetComponentInParent<CarryableObject>();
+            if (target != null && !target.IsPlaced)
+            {
+                currentInteractionPrompt = "E - Pick up " + target.name;
+                return;
+            }
+
+            BeerTap tap = hit.collider.GetComponentInParent<BeerTap>();
+            if (tap != null && tap.HasKeg)
+            {
+                currentInteractionPrompt = tap.ConnectedKeg.IsConnected
+                    ? "E - Disconnect " + tap.TapName
+                    : "E - Connect " + tap.TapName;
+                return;
+            }
+        }
     }
 
     private void HandleInteraction()
@@ -114,7 +167,7 @@ public class PlayerCarrySystem : MonoBehaviour
                 if (tap.ConnectedKeg.IsConnected)
                 {
                     tap.DisconnectKeg();
-                    Debug.Log("Carry System: Disconnected the keg from the beer tap.");
+                    Debug.Log("Carry System: Disconnected the keg from the beer tap. The keg remains installed in its holder.");
                 }
                 else if (tap.ConnectKeg())
                 {
@@ -128,7 +181,6 @@ public class PlayerCarrySystem : MonoBehaviour
         Debug.Log("Carry System: Nothing interactable found.");
     }
 
-    /// <summary>Called by an interactable placement point after it has secured the keg.</summary>
     public bool TryPlaceCarriedKegAt(KegPlacementPoint placementPoint)
     {
         PhysicalKeg keg = CarriedPhysicalKeg;
@@ -148,6 +200,7 @@ public class PlayerCarrySystem : MonoBehaviour
         Debug.Log("Carry System: Keg placed successfully. Look at its beer tap and press E to connect it.");
         ClearCarriedObject();
         currentInteractable = null;
+        currentInteractionPrompt = string.Empty;
         return true;
     }
 
