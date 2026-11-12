@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class PlayerCarrySystem : MonoBehaviour
@@ -9,6 +10,10 @@ public class PlayerCarrySystem : MonoBehaviour
     [Header("Interaction Settings")]
     public float interactionDistance = 2.5f;
     public KeyCode interactKey = KeyCode.E;
+
+    [Header("Keg Placement")]
+    [Tooltip("How close the player must be to a keg placement point. Placement no longer requires precise camera aiming.")]
+    public float kegPlacementDetectionRadius = 2.25f;
 
     private CarryableObject carriedObject;
     private Collider[] carriedColliders;
@@ -31,7 +36,16 @@ public class PlayerCarrySystem : MonoBehaviour
     {
         if (carriedObject != null)
         {
-            if (TryPlaceCarriedKeg())
+            // Kegs are placed with a proximity check. Pressing E while carrying
+            // a keg will not accidentally drop it when no placement point is nearby.
+            PhysicalKeg carriedKeg = GetCarriedPhysicalKeg();
+            if (carriedKeg != null)
+            {
+                TryPlaceCarriedKeg(carriedKeg);
+                return;
+            }
+
+            if (TryPlaceCarriedKeg(null))
                 return;
 
             DropObject();
@@ -78,40 +92,89 @@ public class PlayerCarrySystem : MonoBehaviour
         Debug.Log("Carry System: Nothing interactable found.");
     }
 
-    private bool TryPlaceCarriedKeg()
+    private PhysicalKeg GetCarriedPhysicalKeg()
     {
-        if (playerCamera == null || !TryGetLookHits(out RaycastHit[] hits))
+        if (carriedObject == null)
+            return null;
+
+        PhysicalKeg keg = carriedObject.GetComponent<PhysicalKeg>();
+        if (keg == null)
+            keg = carriedObject.GetComponentInChildren<PhysicalKeg>();
+
+        return keg;
+    }
+
+    private bool TryPlaceCarriedKeg(PhysicalKeg physicalKeg)
+    {
+        if (carriedObject == null)
             return false;
 
-        PhysicalKeg physicalKeg = carriedObject.GetComponent<PhysicalKeg>();
+        if (physicalKeg == null)
+            physicalKeg = GetCarriedPhysicalKeg();
 
+        // Keep the old method available for any future non-keg placement types.
         if (physicalKeg == null)
             return false;
 
-        foreach (RaycastHit hit in hits)
+        KegPlacementPoint placementPoint = FindNearbyKegPlacementPoint();
+        if (placementPoint == null)
         {
-            KegPlacementPoint placementPoint =
-                hit.collider.GetComponentInParent<KegPlacementPoint>();
-
-            if (placementPoint == null)
-                continue;
-
-            if (!placementPoint.TryPlaceKeg(physicalKeg))
-            {
-                Debug.Log("Carry System: This keg position is occupied or not configured.");
-                return true;
-            }
-
-            RestoreCarriedColliders();
-            carriedObject.rb.isKinematic = true;
-            carriedObject.SetPlaced(true);
-
-            Debug.Log("Carry System: Keg placed in position. Look at its beer tap and press E to connect it.");
-            ClearCarriedObject();
-            return true;
+            Debug.Log("Carry System: No keg placement point nearby. Move closer to the anchor.");
+            return false;
         }
 
-        return false;
+        if (!placementPoint.TryPlaceKeg(physicalKeg))
+        {
+            Debug.Log("Carry System: Keg placement failed. The keg is still being carried.");
+            return false;
+        }
+
+        RestoreCarriedColliders();
+
+        if (carriedObject.rb != null)
+            carriedObject.rb.isKinematic = true;
+
+        carriedObject.SetPlaced(true);
+
+        Debug.Log("Carry System: Keg placed successfully. Look at its beer tap and press E to connect it.");
+        ClearCarriedObject();
+        return true;
+    }
+
+    private KegPlacementPoint FindNearbyKegPlacementPoint()
+    {
+        Vector3 searchCentre = transform.position + Vector3.up * 0.8f;
+        Collider[] nearbyColliders = Physics.OverlapSphere(
+            searchCentre,
+            kegPlacementDetectionRadius,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Collide
+        );
+
+        KegPlacementPoint closestPoint = null;
+        float closestDistance = float.MaxValue;
+        HashSet<KegPlacementPoint> checkedPoints = new HashSet<KegPlacementPoint>();
+
+        foreach (Collider nearbyCollider in nearbyColliders)
+        {
+            if (nearbyCollider == null ||
+                nearbyCollider.transform == transform ||
+                nearbyCollider.transform.IsChildOf(transform))
+                continue;
+
+            KegPlacementPoint point = nearbyCollider.GetComponentInParent<KegPlacementPoint>();
+            if (point == null || point.IsOccupied || !checkedPoints.Add(point))
+                continue;
+
+            float distance = Vector3.Distance(searchCentre, nearbyCollider.ClosestPoint(searchCentre));
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestPoint = point;
+            }
+        }
+
+        return closestPoint;
     }
 
     private bool TryGetLookHits(out RaycastHit[] hits)
