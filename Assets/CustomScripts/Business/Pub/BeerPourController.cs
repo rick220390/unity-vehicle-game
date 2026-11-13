@@ -17,8 +17,11 @@ public class BeerPourController : MonoBehaviour
     [Tooltip("The BeerGlassLiquid fill value that represents one pint. Calibrate this to the glass.")]
     [Min(0.001f)] public float fullPintFillAmount = 0.05f;
 
+    [Header("Glass Setup")]
+    [Tooltip("For this test setup, start with an empty glass each time Play Mode begins.")]
+    public bool emptyGlassOnStart = true;
+
     private bool isPouring;
-    private float pouredLitresForCurrentPint;
 
     public bool IsPouring => isPouring;
 
@@ -28,7 +31,20 @@ public class BeerPourController : MonoBehaviour
             beerTap = GetComponent<BeerTap>();
     }
 
-    /// <summary>Called while the player holds E.</summary>
+    private void Start()
+    {
+        // The test glass must start empty. Otherwise a saved Inspector fill value
+        // of 0.05 would already equal the calibrated full-pint target.
+        if (emptyGlassOnStart && glassLiquid != null)
+            glassLiquid.SetFillAmount(0f);
+
+        if (glassLiquid == null)
+            Debug.LogError("Beer Pour: Glass Liquid reference is missing.", this);
+        if (beerTap == null)
+            Debug.LogError("Beer Pour: Beer Tap reference is missing.", this);
+    }
+
+    /// <summary>Called while the player holds the interaction key.</summary>
     public void SetPouring(bool shouldPour)
     {
         if (!shouldPour)
@@ -65,7 +81,7 @@ public class BeerPourController : MonoBehaviour
         if (drink == null || drink.PintSizeLitres <= 0f || keg.IsEmpty)
         {
             isPouring = false;
-            Debug.Log("Beer Pour: The keg is empty.");
+            Debug.Log("Beer Pour: The keg is empty.", this);
             return;
         }
 
@@ -84,19 +100,17 @@ public class BeerPourController : MonoBehaviour
         if (!keg.TryDispense(litresNeeded))
         {
             isPouring = false;
-            Debug.Log("Beer Pour: Not enough beer remains.");
+            Debug.Log("Beer Pour: Not enough beer remains.", this);
             return;
         }
 
         glassLiquid.SetFillAmount(targetFill);
-        pouredLitresForCurrentPint += litresNeeded;
 
         if (glassLiquid.fillAmount >= fullPintFillAmount - 0.0001f)
         {
             beerTap.RecordCompletedPint();
-            pouredLitresForCurrentPint = 0f;
             isPouring = false;
-            Debug.Log("Beer Pour: Pint completed.");
+            Debug.Log("Beer Pour: Pint completed.", this);
         }
     }
 }
