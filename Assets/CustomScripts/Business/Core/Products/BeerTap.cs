@@ -91,6 +91,21 @@ public class BeerTap : MonoBehaviour
     }
 
     /// <summary>
+    /// Records the sale after the glass has been filled by the gradual pour controller.
+    /// The beer has already been dispensed continuously during the pour.
+    /// </summary>
+    public void RecordCompletedPint()
+    {
+        if (connectedKeg == null || connectedKeg.Drink == null)
+            return;
+
+        float salePrice = connectedKeg.Drink.SalePricePerPint;
+        pintsDispensed++;
+        totalSales += salePrice;
+        Debug.Log($"Pint sale recorded for {connectedKeg.Drink.ProductName}. Sale value: {salePrice:0.00}.");
+    }
+
+    /// <summary>
     /// Resets the tap's test sales counters without changing the keg contents.
     /// </summary>
     public void ResetSales()
