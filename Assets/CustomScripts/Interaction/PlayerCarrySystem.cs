@@ -202,10 +202,20 @@ public class PlayerCarrySystem : MonoBehaviour
             {
                 if (tap.ConnectedKeg.IsConnected)
                 {
-                    if (tap.TryPourPint(out float salePrice))
+                    BeerPourController pourController = tap.GetComponentInParent<BeerPourController>();
+
+                    if (pourController != null)
+                    {
+                        pourController.TryStartPour();
+                    }
+                    else if (tap.TryPourPint(out float salePrice))
+                    {
                         Debug.Log($"Carry System: Poured a pint. Sale recorded: {salePrice:0.00}.");
+                    }
                     else
+                    {
                         Debug.Log("Carry System: Could not pour a pint. Check that the keg is connected and contains beer.");
+                    }
                 }
                 else if (tap.ConnectKeg())
                 {
