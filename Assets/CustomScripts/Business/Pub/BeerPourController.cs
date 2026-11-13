@@ -1,9 +1,8 @@
-using System.Collections;
 using UnityEngine;
 
 /// <summary>
-/// Animates one pint filling in the glass, then records the sale through BeerTap.
-/// Attach this to the beer dispenser and assign its BeerTap and glass liquid.
+/// Fills a pint only while the player holds the interaction key.
+/// Beer is removed from the keg continuously as the glass fills.
 /// </summary>
 public class BeerPourController : MonoBehaviour
 {
@@ -12,11 +11,14 @@ public class BeerPourController : MonoBehaviour
     public BeerGlassLiquid glassLiquid;
 
     [Header("Pour Settings")]
-    [Min(0.1f)] public float pourDuration = 3f;
-    [Range(0.01f, 1f)] public float fillPerPint = 1f;
+    [Tooltip("How many pints are poured per second while the key is held.")]
+    [Min(0.01f)] public float pintsPerSecond = 0.15f;
 
-    private Coroutine pourRoutine;
+    [Tooltip("The BeerGlassLiquid fill value that represents one pint. Calibrate this to the glass.")]
+    [Min(0.001f)] public float fullPintFillAmount = 0.05f;
+
     private bool isPouring;
+    private float pouredLitresForCurrentPint;
 
     public bool IsPouring => isPouring;
 
@@ -24,79 +26,77 @@ public class BeerPourController : MonoBehaviour
     {
         if (beerTap == null)
             beerTap = GetComponent<BeerTap>();
-
-        if (glassLiquid != null)
-            glassLiquid.SetFillAmount(0f);
     }
 
-    public bool TryStartPour()
+    /// <summary>Called while the player holds E.</summary>
+    public void SetPouring(bool shouldPour)
     {
-        if (isPouring)
+        if (!shouldPour)
         {
-            Debug.Log("Beer Pour: A pint is already being poured.");
-            return false;
+            isPouring = false;
+            return;
         }
 
-        if (beerTap == null || glassLiquid == null)
+        if (beerTap == null || glassLiquid == null || !beerTap.HasKeg ||
+            !beerTap.ConnectedKeg.IsConnected || glassLiquid.fillAmount >= fullPintFillAmount)
         {
-            Debug.LogWarning("Beer Pour: Assign the BeerTap and BeerGlassLiquid references.");
-            return false;
+            isPouring = false;
+            return;
         }
 
-        if (!beerTap.HasKeg || !beerTap.ConnectedKeg.IsConnected)
+        isPouring = true;
+    }
+
+    private void Update()
+    {
+        if (!isPouring)
+            return;
+
+        if (beerTap == null || glassLiquid == null || !beerTap.HasKeg ||
+            !beerTap.ConnectedKeg.IsConnected)
         {
-            Debug.Log("Beer Pour: The tap is not connected to a keg.");
-            return false;
+            isPouring = false;
+            return;
         }
 
         KegInstance keg = beerTap.ConnectedKeg;
-        if (keg.Drink == null || keg.RemainingLitres < keg.Drink.PintSizeLitres)
+        DrinkDefinition drink = keg.Drink;
+
+        if (drink == null || drink.PintSizeLitres <= 0f || keg.IsEmpty)
         {
-            Debug.Log("Beer Pour: Not enough beer remains for a full pint.");
-            return false;
+            isPouring = false;
+            Debug.Log("Beer Pour: The keg is empty.");
+            return;
         }
 
-        if (glassLiquid.fillAmount >= 0.99f)
+        float targetFill = Mathf.Min(fullPintFillAmount,
+            glassLiquid.fillAmount + fullPintFillAmount * pintsPerSecond * Time.deltaTime);
+
+        float fillIncrease = targetFill - glassLiquid.fillAmount;
+        float litresNeeded = (fillIncrease / fullPintFillAmount) * drink.PintSizeLitres;
+
+        if (litresNeeded <= 0f)
         {
-            Debug.Log("Beer Pour: The glass is already full.");
-            return false;
+            isPouring = false;
+            return;
         }
 
-        pourRoutine = StartCoroutine(PourRoutine());
-        return true;
-    }
-
-    private IEnumerator PourRoutine()
-    {
-        isPouring = true;
-
-        float startingFill = glassLiquid.fillAmount;
-        float targetFill = Mathf.Min(1f, startingFill + fillPerPint);
-        float elapsed = 0f;
-
-        Debug.Log("Beer Pour: Pouring...");
-
-        while (elapsed < pourDuration)
+        if (!keg.TryDispense(litresNeeded))
         {
-            elapsed += Time.deltaTime;
-            float progress = Mathf.Clamp01(elapsed / pourDuration);
-            float easedProgress = Mathf.SmoothStep(0f, 1f, progress);
-
-            glassLiquid.SetFillAmount(Mathf.Lerp(startingFill, targetFill, easedProgress));
-            yield return null;
+            isPouring = false;
+            Debug.Log("Beer Pour: Not enough beer remains.");
+            return;
         }
 
         glassLiquid.SetFillAmount(targetFill);
+        pouredLitresForCurrentPint += litresNeeded;
 
-        if (beerTap.TryPourPint(out float salePrice))
-            Debug.Log($"Beer Pour: Pint completed. Sale recorded: {salePrice:0.00}.");
-        else
+        if (glassLiquid.fillAmount >= fullPintFillAmount - 0.0001f)
         {
-            glassLiquid.SetFillAmount(startingFill);
-            Debug.LogWarning("Beer Pour: The pint could not be recorded; the glass fill was reset.");
+            beerTap.RecordCompletedPint();
+            pouredLitresForCurrentPint = 0f;
+            isPouring = false;
+            Debug.Log("Beer Pour: Pint completed.");
         }
-
-        isPouring = false;
-        pourRoutine = null;
     }
 }
