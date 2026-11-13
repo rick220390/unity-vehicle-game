@@ -200,21 +200,25 @@ public class PlayerCarrySystem : MonoBehaviour
 
             if (tap != null && tap.HasKeg)
             {
+                Debug.Log($"Carry System: Found BeerTap '{tap.name}' on hit object '{hit.collider.name}'.");
+
                 if (tap.ConnectedKeg.IsConnected)
                 {
                     BeerPourController pourController = tap.GetComponentInParent<BeerPourController>();
 
                     if (pourController != null)
                     {
-                        pourController.TryStartPour();
-                    }
-                    else if (tap.TryPourPint(out float salePrice))
-                    {
-                        Debug.Log($"Carry System: Poured a pint. Sale recorded: {salePrice:0.00}.");
+                        Debug.Log($"Carry System: Found BeerPourController '{pourController.name}'. Starting gradual pour.");
+                        bool started = pourController.TryStartPour();
+                        Debug.Log($"Carry System: Gradual pour start result: {started}.");
                     }
                     else
                     {
-                        Debug.Log("Carry System: Could not pour a pint. Check that the keg is connected and contains beer.");
+                        Debug.LogWarning($"Carry System: No BeerPourController found in the parent hierarchy of BeerTap '{tap.name}'. Using instant-pour fallback.");
+                        if (tap.TryPourPint(out float salePrice))
+                            Debug.Log($"Carry System: Poured a pint instantly. Sale recorded: {salePrice:0.00}.");
+                        else
+                            Debug.Log("Carry System: Could not pour a pint. Check that the keg is connected and contains beer.");
                     }
                 }
                 else if (tap.ConnectKeg())
