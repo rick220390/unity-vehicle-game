@@ -28,6 +28,7 @@ public class PlayerCarrySystem : MonoBehaviour
     private IPlayerInteractable currentInteractable;
     private string currentInteractionPrompt = string.Empty;
     private string currentKegInfo = string.Empty;
+    private BeerPourController activePourController;
 
     public IPlayerInteractable CurrentInteractable => currentInteractable;
     public string CurrentInteractionPrompt => currentInteractionPrompt;
@@ -223,25 +224,30 @@ public class PlayerCarrySystem : MonoBehaviour
 
     private void UpdateHeldBeerPour()
     {
-        if (carriedObject != null || !TryGetLookHits(out RaycastHit[] hits))
-            return;
-
         BeerPourController targetController = null;
 
-        foreach (RaycastHit hit in hits)
+        if (carriedObject == null && TryGetLookHits(out RaycastHit[] hits))
         {
-            BeerTap tap = hit.collider.GetComponentInParent<BeerTap>();
-            if (tap == null)
-                continue;
+            foreach (RaycastHit hit in hits)
+            {
+                BeerTap tap = hit.collider.GetComponentInParent<BeerTap>();
+                if (tap == null)
+                    continue;
 
-            if (tap.HasKeg && tap.ConnectedKeg.IsConnected)
-                targetController = tap.GetComponentInParent<BeerPourController>();
+                if (tap.HasKeg && tap.ConnectedKeg.IsConnected)
+                    targetController = tap.GetComponentInParent<BeerPourController>();
 
-            break;
+                break;
+            }
         }
 
-        if (targetController != null)
-            targetController.SetPouring(Input.GetKey(interactKey));
+        if (activePourController != null && activePourController != targetController)
+            activePourController.SetPouring(false);
+
+        activePourController = targetController;
+
+        if (activePourController != null)
+            activePourController.SetPouring(Input.GetKey(interactKey));
     }
 
     private void HandleDisconnectInteraction()
