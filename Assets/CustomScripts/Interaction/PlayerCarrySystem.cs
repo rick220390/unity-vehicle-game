@@ -51,6 +51,8 @@ public class PlayerCarrySystem : MonoBehaviour
         if (Input.GetKeyDown(interactKey))
             HandleInteraction();
 
+        UpdateHeldBeerPour();
+
         if (Input.GetKeyDown(disconnectKey))
             HandleDisconnectInteraction();
 
@@ -153,7 +155,7 @@ public class PlayerCarrySystem : MonoBehaviour
             if (tap != null && tap.HasKeg)
             {
                 currentInteractionPrompt = tap.ConnectedKeg.IsConnected
-                    ? "E - Pour pint    |    R - Disconnect " + tap.TapName
+                    ? "Hold E - Pour pint    |    R - Disconnect " + tap.TapName
                     : "E - Connect " + tap.TapName;
                 return;
             }
@@ -204,22 +206,8 @@ public class PlayerCarrySystem : MonoBehaviour
 
                 if (tap.ConnectedKeg.IsConnected)
                 {
-                    BeerPourController pourController = tap.GetComponentInParent<BeerPourController>();
-
-                    if (pourController != null)
-                    {
-                        Debug.Log($"Carry System: Found BeerPourController '{pourController.name}'. Starting gradual pour.");
-                        bool started = pourController.TryStartPour();
-                        Debug.Log($"Carry System: Gradual pour start result: {started}.");
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"Carry System: No BeerPourController found in the parent hierarchy of BeerTap '{tap.name}'. Using instant-pour fallback.");
-                        if (tap.TryPourPint(out float salePrice))
-                            Debug.Log($"Carry System: Poured a pint instantly. Sale recorded: {salePrice:0.00}.");
-                        else
-                            Debug.Log("Carry System: Could not pour a pint. Check that the keg is connected and contains beer.");
-                    }
+                    // Pouring is handled continuously by UpdateHeldBeerPour while E is held.
+                    Debug.Log("Carry System: Hold E to pour; release E to stop.");
                 }
                 else if (tap.ConnectKeg())
                 {
@@ -231,6 +219,29 @@ public class PlayerCarrySystem : MonoBehaviour
         }
 
         Debug.Log("Carry System: Nothing interactable found.");
+    }
+
+    private void UpdateHeldBeerPour()
+    {
+        if (carriedObject != null || !TryGetLookHits(out RaycastHit[] hits))
+            return;
+
+        BeerPourController targetController = null;
+
+        foreach (RaycastHit hit in hits)
+        {
+            BeerTap tap = hit.collider.GetComponentInParent<BeerTap>();
+            if (tap == null)
+                continue;
+
+            if (tap.HasKeg && tap.ConnectedKeg.IsConnected)
+                targetController = tap.GetComponentInParent<BeerPourController>();
+
+            break;
+        }
+
+        if (targetController != null)
+            targetController.SetPouring(Input.GetKey(interactKey));
     }
 
     private void HandleDisconnectInteraction()
