@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: 587ac34e73ec0784c8f363889a6f3a2e
+timeCreated: 1516319013
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 166688
+  packageName: Urban Traffic System Full Pack
+  packageVersion: 2.0
+  assetPath: Assets/UTS_FullPack/Scripts/Another Script/CarWheelsRotation.cs
+  uploadId: 882732

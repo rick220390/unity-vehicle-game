@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: c0c08e22fc3a34845b4a01b09b94063e
+timeCreated: 1518989445
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 166688
+  packageName: Urban Traffic System Full Pack
+  packageVersion: 2.0
+  assetPath: Assets/UTS_FullPack/Scripts/Car/CarMove.cs
+  uploadId: 882732

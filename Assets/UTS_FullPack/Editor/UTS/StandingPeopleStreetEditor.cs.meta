@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: 6c42774722268154b917125ff9fccdda
+timeCreated: 1516222460
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 166688
+  packageName: Urban Traffic System Full Pack
+  packageVersion: 2.0
+  assetPath: Assets/UTS_FullPack/Editor/UTS/StandingPeopleStreetEditor.cs
+  uploadId: 882732

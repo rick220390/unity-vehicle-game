@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: f8ad9ff5e07081c439224d5ac8f10f56
+timeCreated: 1514228641
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 166688
+  packageName: Urban Traffic System Full Pack
+  packageVersion: 2.0
+  assetPath: Assets/UTS_FullPack/Scripts/Street And Concert/PeopleController.cs
+  uploadId: 882732

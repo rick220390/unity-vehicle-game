@@ -1,0 +1,20 @@
+fileFormatVersion: 2
+guid: 298f88cd7d385e94ab9f503f553c23bb
+timeCreated: 1516820951
+licenseType: Store
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 166688
+  packageName: Urban Traffic System Full Pack
+  packageVersion: 2.0
+  assetPath: Assets/UTS_FullPack/Scripts/People/BcycleGyroController.cs
+  uploadId: 882732
