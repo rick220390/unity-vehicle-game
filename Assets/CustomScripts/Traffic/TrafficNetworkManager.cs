@@ -34,18 +34,20 @@ namespace CustomTraffic
 
             foreach (TrafficConnection connection in connections)
             {
-                if (connection == null || !connection.IsValidForNetwork(out string reason))
+                if (connection == null)
                 {
                     invalidCount++;
+                    Debug.LogWarning("[Traffic Network] Found a missing connection component.");
+                    continue;
+                }
 
-                    if (connection != null)
-                    {
-                        Debug.LogWarning(
-                            $"[Traffic Network] Connection '{connection.DisplayName}' is invalid: {reason}",
-                            connection
-                        );
-                    }
-
+                if (!connection.IsValidForNetwork(out string reason))
+                {
+                    invalidCount++;
+                    Debug.LogWarning(
+                        $"[Traffic Network] Connection '{connection.DisplayName}' is invalid: {reason}",
+                        connection
+                    );
                     continue;
                 }
 
