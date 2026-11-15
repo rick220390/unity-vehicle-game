@@ -4,8 +4,8 @@ using UnityEngine;
 namespace CustomTraffic
 {
     /// <summary>
-    /// Collects directed lane connections and identifies which connections
-    /// can be taken next from a given traffic node.
+    /// Collects directed road-lane and junction-movement connections.
+    /// The end node of one connection can be the start node of the next.
     /// </summary>
     public class TrafficNetworkManager : MonoBehaviour
     {
@@ -30,15 +30,22 @@ namespace CustomTraffic
 
             TrafficConnection[] connections = FindObjectsOfType<TrafficConnection>();
             int validCount = 0;
+            int invalidCount = 0;
 
             foreach (TrafficConnection connection in connections)
             {
-                if (connection == null || !connection.IsConfigured)
+                if (connection == null || !connection.IsValidForNetwork(out string reason))
                 {
-                    Debug.LogWarning(
-                        "[Traffic Network] Found a connection with missing references.",
-                        connection
-                    );
+                    invalidCount++;
+
+                    if (connection != null)
+                    {
+                        Debug.LogWarning(
+                            $"[Traffic Network] Connection '{connection.DisplayName}' is invalid: {reason}",
+                            connection
+                        );
+                    }
+
                     continue;
                 }
 
@@ -57,8 +64,8 @@ namespace CustomTraffic
             ConnectionCount = validCount;
 
             Debug.Log(
-                $"[Traffic Network] Built network with {ConnectionCount} valid lane connections " +
-                $"and {outgoingConnections.Count} departure nodes.",
+                $"[Traffic Network] Built network with {ConnectionCount} valid connections, " +
+                $"{invalidCount} invalid connections, and {outgoingConnections.Count} departure nodes.",
                 this
             );
 
