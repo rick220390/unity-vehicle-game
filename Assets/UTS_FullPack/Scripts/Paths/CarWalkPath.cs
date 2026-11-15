@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 public class CarWalkPath : WalkPath
 {
-    [Tooltip("Direction of movement / Направление движения. Левостороннее, правостороннее, итд.")] [SerializeField] private EnumDir direction;
+    [Tooltip("Direction of movement / Направление движения. Левостороннее, правостороннее, итд.")] [SerializeField] private EnumDir carDirection;
 
     [Tooltip("Vehicle Speed / Скорость машины")] public float moveSpeed = 12.0f;
     [Tooltip("Vehicle Deseleration / Торможение машины")] public float speadDecrease = 2.0f;
@@ -24,7 +24,7 @@ public class CarWalkPath : WalkPath
 
     public override void DrawCurved(bool withDraw, EnumDir direct = EnumDir.Forward)
     {
-        base.DrawCurved(withDraw, direction);
+        base.DrawCurved(withDraw, carDirection);
     }
 
     public override void CreateSpawnPoints()
@@ -159,7 +159,7 @@ public class CarWalkPath : WalkPath
 
             bool forward = false;
 
-            switch (direction.ToString())
+            switch (carDirection.ToString())
             {
                 case "Forward":
                     forward = true;
