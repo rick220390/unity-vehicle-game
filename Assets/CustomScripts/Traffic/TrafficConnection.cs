@@ -2,9 +2,18 @@ using UnityEngine;
 
 namespace CustomTraffic
 {
+    public enum TrafficConnectionType
+    {
+        // Keeps existing scene connections working until they are explicitly classified.
+        Legacy,
+        RoadLane,
+        JunctionMovement
+    }
+
     /// <summary>
-    /// Represents one directed lane segment in the road network.
-    /// The lane spline runs from startNode to endNode.
+    /// Represents one directed path segment in the road network.
+    /// RoadLane connections join road ends/exits to road ends/entries.
+    /// JunctionMovement connections join a junction entry to a junction exit.
     /// </summary>
     [DisallowMultipleComponent]
     public class TrafficConnection : MonoBehaviour
@@ -12,6 +21,7 @@ namespace CustomTraffic
         [Header("Connection Identity")]
         [SerializeField] private string connectionId = "connection_01";
         [SerializeField] private string displayName = "Traffic Connection";
+        [SerializeField] private TrafficConnectionType connectionType = TrafficConnectionType.Legacy;
 
         [Header("Lane and Endpoints")]
         [SerializeField] private TrafficLaneSpline lane;
@@ -25,10 +35,54 @@ namespace CustomTraffic
 
         public string ConnectionId => connectionId;
         public string DisplayName => displayName;
+        public TrafficConnectionType ConnectionType => connectionType;
         public TrafficLaneSpline Lane => lane;
         public TrafficNode StartNode => startNode;
         public TrafficNode EndNode => endNode;
         public bool IsConfigured => lane != null && startNode != null && endNode != null;
+
+        public bool IsValidForNetwork(out string reason)
+        {
+            if (!IsConfigured)
+            {
+                reason = "The lane, start node, or end node reference is missing.";
+                return false;
+            }
+
+            if (startNode == endNode)
+            {
+                reason = "The start and end nodes cannot be the same object.";
+                return false;
+            }
+
+            if (connectionType == TrafficConnectionType.RoadLane)
+            {
+                bool validStart =
+                    startNode.NodeType == TrafficNodeType.RoadEnd ||
+                    startNode.NodeType == TrafficNodeType.JunctionExit;
+
+                bool validEnd =
+                    endNode.NodeType == TrafficNodeType.RoadEnd ||
+                    endNode.NodeType == TrafficNodeType.JunctionEntry;
+
+                if (!validStart || !validEnd)
+                {
+                    reason = "A RoadLane must start at a RoadEnd or JunctionExit and end at a RoadEnd or JunctionEntry.";
+                    return false;
+                }
+            }
+            else if (connectionType == TrafficConnectionType.JunctionMovement)
+            {
+                if (!startNode.IsJunctionEntry || !endNode.IsJunctionExit)
+                {
+                    reason = "A JunctionMovement must start at a JunctionEntry and end at a JunctionExit.";
+                    return false;
+                }
+            }
+
+            reason = string.Empty;
+            return true;
+        }
 
         private void OnValidate()
         {
