@@ -95,6 +95,40 @@ namespace CustomTraffic
         }
 
         /// <summary>
+        /// Test helper: reports the available turns from each incoming lane marker.
+        /// This does not move vehicles or modify the scene.
+        /// </summary>
+        [ContextMenu("Test Lane Movement Lookup")]
+        public void TestLaneMovementLookup()
+        {
+            TrafficJunctionMarker[] markers = GetMarkers();
+
+            foreach (TrafficJunctionMarker marker in markers)
+            {
+                if (marker == null || !marker.IsConfigured(out _))
+                    continue;
+
+                TrafficJunctionMovement[] availableMovements =
+                    GetMovementsFromLane(marker.Lane);
+
+                if (availableMovements.Length == 0)
+                {
+                    Debug.Log(
+                        $"[Traffic Junction Test] Lane '{marker.Lane.LaneDisplayName}': no turning movements. Straight-ahead travel, if available, remains on its continuous lane spline.",
+                        marker);
+                    continue;
+                }
+
+                foreach (TrafficJunctionMovement movement in availableMovements)
+                {
+                    Debug.Log(
+                        $"[Traffic Junction Test] Lane '{marker.Lane.LaneDisplayName}' can turn {movement.MovementType} via '{movement.DisplayName}' onto '{movement.OutgoingLane.LaneDisplayName}'.",
+                        movement);
+                }
+            }
+        }
+
+        /// <summary>
         /// Checks marker and movement references without changing any scene data.
         /// Run from the component context menu in the Inspector.
         /// </summary>
