@@ -26,10 +26,9 @@ namespace CustomTraffic.UTS
                 return;
             }
 
-            // The first UTS point (index 0) and final point are padding points.
-            // Actual spline samples occupy indices 1 through sampleCount.
+            // UTS uses duplicate padding points at indices 0 and the final index.
             numberOfWays = 1;
-            loopPath = true; // UTS CarAIController expects a SpawnPoint at a non-looping path's end.
+            loopPath = true; // Keeps the UTS controller from requesting an unconfigured SpawnPoint at the end.
             _forward = new bool[1] { true };
             pointLength = new int[2];
             pointLength[0] = sampleCount + 2;
@@ -38,7 +37,8 @@ namespace CustomTraffic.UTS
             for (int i = 0; i < sampleCount; i++)
             {
                 float t = i / (float)(sampleCount - 1);
-                Vector3 local = SplineUtility.EvaluatePosition(container.Spline, t);
+                Unity.Mathematics.float3 evaluated = SplineUtility.EvaluatePosition(container.Spline, t);
+                Vector3 local = new Vector3(evaluated.x, evaluated.y, evaluated.z);
                 points[0, i + 1] = container.transform.TransformPoint(local);
             }
 
