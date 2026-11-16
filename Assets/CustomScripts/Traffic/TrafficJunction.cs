@@ -67,7 +67,35 @@ namespace CustomTraffic
         }
 
         /// <summary>
-        /// Checks marker and movement references without changing scene data.
+        /// Returns the permitted turning movements that begin on the supplied
+        /// incoming lane. Straight-ahead travel is handled by the continuous
+        /// lane spline and is therefore not returned by this method.
+        /// </summary>
+        public TrafficJunctionMovement[] GetMovementsFromLane(
+            TrafficLaneSpline incomingLane)
+        {
+            if (incomingLane == null)
+                return new TrafficJunctionMovement[0];
+
+            TrafficJunctionMovement[] allMovements = GetMovements();
+            List<TrafficJunctionMovement> results =
+                new List<TrafficJunctionMovement>();
+
+            foreach (TrafficJunctionMovement movement in allMovements)
+            {
+                if (movement != null &&
+                    movement.IsConfigured(out _) &&
+                    movement.IncomingLane == incomingLane)
+                {
+                    results.Add(movement);
+                }
+            }
+
+            return results.ToArray();
+        }
+
+        /// <summary>
+        /// Checks marker and movement references without changing any scene data.
         /// Run from the component context menu in the Inspector.
         /// </summary>
         [ContextMenu("Validate Junction")]
