@@ -3,6 +3,13 @@ using UnityEngine.Splines;
 
 namespace CustomTraffic
 {
+    public enum TrafficMovementType
+    {
+        LeftTurn,
+        RightTurn,
+        Other
+    }
+
     /// <summary>
     /// Defines one permitted vehicle movement through a junction.
     /// The incoming and outgoing references are the continuous road lanes;
@@ -14,6 +21,7 @@ namespace CustomTraffic
         [Header("Movement Identity")]
         [SerializeField] private string movementId = "movement_01";
         [SerializeField] private string displayName = "New Junction Movement";
+        [SerializeField] private TrafficMovementType movementType = TrafficMovementType.Other;
 
         [Header("Junction and Road Lanes")]
         [SerializeField] private TrafficJunction junction;
@@ -30,6 +38,7 @@ namespace CustomTraffic
 
         public string MovementId => movementId;
         public string DisplayName => displayName;
+        public TrafficMovementType MovementType => movementType;
         public TrafficJunction Junction => junction;
         public TrafficLaneSpline IncomingLane => incomingLane;
         public TrafficLaneSpline OutgoingLane => outgoingLane;
