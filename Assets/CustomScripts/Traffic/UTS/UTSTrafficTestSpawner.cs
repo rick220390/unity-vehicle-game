@@ -1,32 +1,145 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace CustomTraffic.UTS
 {
     /// <summary>
-    /// Spawns one existing UTS car prefab at the beginning of a custom traffic
-    /// lane and gives it the sampled WalkPath adapter.
+    /// Spawns existing UTS vehicle prefabs onto a TrafficSplineWalkPath.
+    /// Vehicles follow the generated route using the original UTS AI.
+    /// At the end of an open route, UTS requests a replacement vehicle at
+    /// the start instead of steering across the junction to close a loop.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(TrafficSplineWalkPath))]
     public class UTSTrafficTestSpawner : MonoBehaviour
     {
-        [Header("Test Vehicle")]
+        [Header("Test Vehicles")]
         [SerializeField] private GameObject vehiclePrefab;
+        [SerializeField, Range(1, 20)] private int spawnCount = 4;
+        [SerializeField, Min(2f)] private float spawnSpacingMeters = 12f;
+        [SerializeField, Min(0f)] private float spawnInterval = 0.5f;
+
+        [Header("Vehicle Driving")]
         [SerializeField, Min(0.1f)] private float moveSpeed = 8f;
         [SerializeField, Min(0.1f)] private float acceleration = 2f;
         [SerializeField, Min(0.1f)] private float deceleration = 2f;
         [SerializeField, Min(1f)] private float followingDistance = 8f;
-        [SerializeField, Min(0.5f)] private float waypointThreshold = 2f;
+        [SerializeField, Min(0.1f)] private float waypointThreshold = 0.5f;
+
+        [Header("Spawning")]
         [SerializeField] private bool spawnOnStart = true;
+
+        private TrafficSplineWalkPath trafficPath;
+
+        private void Awake()
+        {
+            trafficPath = GetComponent<TrafficSplineWalkPath>();
+
+            if (trafficPath != null)
+                trafficPath.SpawnRequested += HandleRouteEndRespawn;
+        }
 
         private void Start()
         {
             if (spawnOnStart)
-                SpawnOneTestVehicle();
+                StartCoroutine(SpawnInitialVehicles());
+        }
+
+        private void OnDestroy()
+        {
+            if (trafficPath != null)
+                trafficPath.SpawnRequested -= HandleRouteEndRespawn;
+        }
+
+        private IEnumerator SpawnInitialVehicles()
+        {
+            // Let the WalkPath base Awake build its sampled points and SpawnPoint.
+            yield return null;
+
+            if (trafficPath == null || !trafficPath.HasValidPath)
+            {
+                Debug.LogError(
+                    "[UTS Traffic Test] The traffic route is not valid. Check the TrafficSplineWalkPath component and its selected junction movement.",
+                    this);
+                yield break;
+            }
+
+            if (vehiclePrefab == null)
+            {
+                Debug.LogError("[UTS Traffic Test] Assign an existing UTS car prefab.", this);
+                yield break;
+            }
+
+            List<int> spawnIndices = BuildSpawnIndices();
+
+            if (spawnIndices.Count < spawnCount)
+            {
+                Debug.LogWarning(
+                    "[UTS Traffic Test] The route is not long enough for all requested vehicles at the current spacing. Spawning " +
+                    spawnIndices.Count + " of " + spawnCount + ".",
+                    this);
+            }
+
+            for (int i = 0; i < spawnIndices.Count; i++)
+            {
+                SpawnVehicleAtIndex(spawnIndices[i]);
+
+                if (spawnInterval > 0f && i < spawnIndices.Count - 1)
+                    yield return new WaitForSeconds(spawnInterval);
+            }
         }
 
         [ContextMenu("Spawn One UTS Test Vehicle")]
         public void SpawnOneTestVehicle()
+        {
+            if (trafficPath == null)
+                trafficPath = GetComponent<TrafficSplineWalkPath>();
+
+            if (trafficPath == null || !trafficPath.HasValidPath)
+            {
+                Debug.LogError("[UTS Traffic Test] The traffic path is not ready or is invalid.", this);
+                return;
+            }
+
+            SpawnVehicleAtIndex(1);
+        }
+
+        private List<int> BuildSpawnIndices()
+        {
+            List<int> result = new List<int>();
+
+            int lastPointIndex = trafficPath.getPointsTotal(0) - 2;
+            if (lastPointIndex < 2)
+                return result;
+
+            result.Add(1);
+            float distanceSinceLastSpawn = 0f;
+
+            for (int i = 2; i < lastPointIndex && result.Count < spawnCount; i++)
+            {
+                distanceSinceLastSpawn += Vector3.Distance(
+                    trafficPath.getNextPoint(0, i - 1),
+                    trafficPath.getNextPoint(0, i));
+
+                if (distanceSinceLastSpawn >= spawnSpacingMeters)
+                {
+                    result.Add(i);
+                    distanceSinceLastSpawn = 0f;
+                }
+            }
+
+            return result;
+        }
+
+        private void HandleRouteEndRespawn(int wayIndex, bool forward)
+        {
+            // This adapter currently builds one forward route.
+            if (wayIndex == 0 && forward)
+                SpawnVehicleAtIndex(1);
+        }
+
+        private void SpawnVehicleAtIndex(int startIndex)
         {
             if (vehiclePrefab == null)
             {
@@ -34,13 +147,29 @@ namespace CustomTraffic.UTS
                 return;
             }
 
-            TrafficSplineWalkPath path = GetComponent<TrafficSplineWalkPath>();
-            Vector3 start = path.getNextPoint(0, 1);
-            Vector3 next = path.getNextPoint(0, 2);
+            if (trafficPath == null || !trafficPath.HasValidPath)
+            {
+                Debug.LogError("[UTS Traffic Test] Cannot spawn because the sampled traffic route is invalid.", this);
+                return;
+            }
+
+            int lastPointIndex = trafficPath.getPointsTotal(0) - 2;
+
+            if (lastPointIndex < 2)
+            {
+                Debug.LogError("[UTS Traffic Test] The sampled route does not contain enough points.", this);
+                return;
+            }
+
+            startIndex = Mathf.Clamp(startIndex, 1, lastPointIndex - 1);
+
+            int nextIndex = Mathf.Min(startIndex + 1, lastPointIndex);
+            Vector3 start = trafficPath.getNextPoint(0, startIndex);
+            Vector3 next = trafficPath.getNextPoint(0, nextIndex);
 
             if (Vector3.Distance(start, next) < 0.01f)
             {
-                Debug.LogError("[UTS Traffic Test] The lane adapter has no usable sampled points.", this);
+                Debug.LogError("[UTS Traffic Test] The selected spawn point has no usable forward direction.", this);
                 return;
             }
 
@@ -49,13 +178,16 @@ namespace CustomTraffic.UTS
 
             // MovePath must exist and be assigned before CarAIController.Awake runs.
             MovePath movePath = vehicle.AddComponent<MovePath>();
-            movePath.walkPath = path;
+            movePath.walkPath = trafficPath;
             movePath._walkPointThreshold = waypointThreshold;
-            movePath.InitStartPosition(0, 1, true, true);
-            movePath.nextFinishPos = path.getNextPoint(0, 3);
+            movePath.InitStartPosition(0, startIndex, false, true);
+
+            int lookAheadIndex = startIndex + 2;
+            movePath.nextFinishPos = lookAheadIndex <= lastPointIndex
+                ? trafficPath.getNextPoint(0, lookAheadIndex)
+                : Vector3.zero;
 
             CarAIController ai = vehicle.AddComponent<CarAIController>();
-            ai.GetBoxSize();
             ai.MOVE_SPEED = moveSpeed;
             ai.INCREASE = acceleration;
             ai.DECREASE = deceleration;
@@ -63,11 +195,33 @@ namespace CustomTraffic.UTS
             ai.TO_SEMAPHORE = followingDistance;
             ai.MaxAngle = 8f;
 
+            // UTS GetBoxSize() relies on isACar, which is only set in Start().
+            // Set the same collider choice directly so the first physics tick
+            // already has the correct front-ray bounds.
+            WheelCollider[] wheelColliders = vehicle.GetComponentsInChildren<WheelCollider>(true);
+            BoxCollider[] boxColliders = vehicle.GetComponentsInChildren<BoxCollider>(true);
+            int boxIndex = wheelColliders.Length > 2 ? 0 : 1;
+
+            if (boxColliders.Length <= boxIndex)
+            {
+                Debug.LogError(
+                    "[UTS Traffic Test] The vehicle prefab does not contain the BoxCollider layout expected by UTS CarAIController.",
+                    vehicle);
+                Destroy(vehicle);
+                return;
+            }
+
+            ai.bc = boxColliders[boxIndex];
+            ai.bcSize = ai.bc.bounds.size;
+
             movePath.SetLookPosition();
 
-            Debug.Log("[UTS Traffic Test] Spawned one UTS vehicle on lane '" +
-                      GetComponent<TrafficLaneSpline>().LaneDisplayName +
-                      "'. It will loop at the end of the spline; stop Play Mode after it passes the test section.", vehicle);
+            Debug.Log(
+                "[UTS Traffic Test] Spawned vehicle on '" +
+                GetComponent<TrafficLaneSpline>().LaneDisplayName +
+                "' at route point " + startIndex +
+                ". It will follow the sampled spline route and respawn at its start when it reaches the end.",
+                vehicle);
         }
     }
 }

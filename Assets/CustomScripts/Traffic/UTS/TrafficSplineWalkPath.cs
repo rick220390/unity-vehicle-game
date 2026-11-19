@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Splines;
@@ -5,32 +6,51 @@ using UnityEngine.Splines;
 namespace CustomTraffic.UTS
 {
     /// <summary>
-    /// Presents either a single TrafficLaneSpline or one complete
-    /// incoming-lane -> junction-turn -> outgoing-lane route to the existing
-    /// UTS MovePath/CarAIController as sampled waypoints.
+    /// Converts a directional traffic lane, and optionally one junction movement,
+    /// into the waypoint format expected by the existing UTS vehicle AI.
     ///
-    /// This bridge does not modify any original UTS scripts.
+    /// The generated route is deliberately NON-LOOPING. UTS cars are respawned
+    /// at the route start when they reach its end, rather than steering across
+    /// the junction from the route end back to its beginning.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(TrafficLaneSpline))]
     public class TrafficSplineWalkPath : WalkPath
     {
         [Header("Spline Sampling")]
-        [SerializeField, Min(8)] private int samplesPerSegment = 40;
+        [SerializeField, Min(8)] private int samplesPerSegment = 48;
 
         [Header("Optional Junction Turn Test")]
-        [Tooltip("Leave empty for a normal continuous lane. Assign a configured junction movement to build a route that follows this lane to the junction, takes the turn, then follows the outgoing lane.")]
+        [Tooltip("Leave empty to follow this lane only. Assign a configured movement to follow the incoming lane, the curved junction spline, and the outgoing lane.")]
         [SerializeField] private TrafficJunctionMovement selectedMovement;
 
-        [Tooltip("Warn if the turning spline endpoints are farther from their lane junction markers than this distance.")]
+        [Tooltip("Search distance either side of each lane marker when matching a turn endpoint to its road spline.")]
+        [SerializeField, Range(0.01f, 0.4f)] private float endpointSearchWindow = 0.15f;
+
+        [Tooltip("Stop route generation if a turn endpoint is this far or more from its connected road spline.")]
         [SerializeField, Min(0.1f)] private float endpointWarningDistance = 3f;
+
+        public event Action<int, bool> SpawnRequested;
+
+        public bool HasValidPath =>
+            points != null &&
+            pointLength != null &&
+            pointLength.Length > 0 &&
+            pointLength[0] >= 4;
 
         public override void DrawCurved(bool withDraw, EnumDir direct = EnumDir.Forward)
         {
             TrafficLaneSpline lane = GetComponent<TrafficLaneSpline>();
 
+            // Never let UTS close an open road route with an imaginary line.
+            // Cars will be respawned at the route start through SpawnPoint instead.
+            loopPath = false;
+            points = null;
+            pointLength = new int[2];
+
             if (lane == null || lane.SplineContainer == null ||
-                lane.SplineContainer.Spline == null || lane.SplineContainer.Spline.Count < 2)
+                lane.SplineContainer.Spline == null ||
+                lane.SplineContainer.Spline.Count < 2)
             {
                 Debug.LogError("[UTS Traffic Bridge] A valid TrafficLaneSpline/SplineContainer is required.", this);
                 return;
@@ -59,11 +79,8 @@ namespace CustomTraffic.UTS
                 return;
             }
 
-            // UTS expects duplicate padding points at indices 0 and the final index.
-            // Keep looping enabled for this isolated test so UTS does not request
-            // an unconfigured SpawnPoint when it reaches the route's end.
             numberOfWays = 1;
-            loopPath = true;
+            loopPath = false;
             _forward = new bool[1] { true };
             pointLength = new int[2];
             pointLength[0] = routePoints.Count + 2;
@@ -72,6 +89,7 @@ namespace CustomTraffic.UTS
             for (int i = 0; i < routePoints.Count; i++)
                 points[0, i + 1] = routePoints[i];
 
+            // UTS uses duplicate padding points at the beginning and end.
             points[0, 0] = points[0, 1];
             points[0, routePoints.Count + 1] = points[0, routePoints.Count];
 
@@ -84,11 +102,12 @@ namespace CustomTraffic.UTS
             if (selectedMovement != null)
             {
                 Debug.Log(
-                    "[UTS Traffic Bridge] Built turning test route: '" +
+                    "[UTS Traffic Bridge] Built an open turning route: '" +
                     lane.LaneDisplayName + "' -> '" +
                     selectedMovement.DisplayName + "' -> '" +
                     selectedMovement.OutgoingLane.LaneDisplayName +
-                    "'. Sampled waypoints: " + routePoints.Count + ".",
+                    "'. Waypoints: " + routePoints.Count +
+                    ". UTS will respawn vehicles at the route start instead of looping across the junction.",
                     this);
             }
         }
@@ -149,41 +168,54 @@ namespace CustomTraffic.UTS
                 return false;
             }
 
-            Vector3 incomingMarkerPosition;
-            Vector3 outgoingMarkerPosition;
-
-            if (!incomingMarker.TryGetWorldPosition(out incomingMarkerPosition) ||
-                !outgoingMarker.TryGetWorldPosition(out outgoingMarkerPosition))
-            {
-                Debug.LogError("[UTS Traffic Bridge] Could not evaluate one of the junction lane markers.", movement);
-                return false;
-            }
-
             Vector3 turnStart = EvaluateWorldPosition(turningSpline, 0f);
             Vector3 turnEnd = EvaluateWorldPosition(turningSpline, 1f);
 
-            float startGap = Vector3.Distance(incomingMarkerPosition, turnStart);
-            float endGap = Vector3.Distance(outgoingMarkerPosition, turnEnd);
+            // Use the marker as a search hint, but join the road at the point
+            // actually nearest to the hand-drawn turn spline endpoint. This
+            // prevents a misplaced marker from adding a straight zigzag leg.
+            float incomingJoinT = FindClosestNormalizedPosition(
+                incomingSpline,
+                turnStart,
+                incomingMarker.NormalizedPosition,
+                out float startGap);
+
+            float outgoingJoinT = FindClosestNormalizedPosition(
+                outgoingSpline,
+                turnEnd,
+                outgoingMarker.NormalizedPosition,
+                out float endGap);
 
             if (startGap > endpointWarningDistance || endGap > endpointWarningDistance)
             {
-                Debug.LogWarning(
-                    "[UTS Traffic Bridge] Turning spline endpoint alignment needs checking. " +
-                    "Incoming gap: " + startGap.ToString("F2") + "m; outgoing gap: " +
-                    endGap.ToString("F2") + "m. The route will still be generated.",
+                Debug.LogError(
+                    "[UTS Traffic Bridge] Route not built because a turn endpoint is too far from its road spline. " +
+                    "Incoming endpoint gap: " + startGap.ToString("F2") +
+                    "m; outgoing endpoint gap: " + endGap.ToString("F2") +
+                    "m. Move the end of the hand-drawn turn spline closer to its connected road lane. " +
+                    "No artificial connector line will be generated.",
                     movement);
+                return false;
             }
 
-            // Travel along the incoming road only as far as its junction marker.
+            if (outgoingJoinT >= 0.995f)
+            {
+                Debug.LogError(
+                    "[UTS Traffic Bridge] The turn reaches the very end of the outgoing lane spline, leaving no road section for the vehicle to follow. Move the outgoing junction marker/turn endpoint earlier along that lane.",
+                    movement);
+                return false;
+            }
+
+            // 1. Follow the incoming road up to the point nearest the turn start.
             AddSplineSamples(
                 routePoints,
                 incomingSpline,
                 0f,
-                incomingMarker.NormalizedPosition,
+                incomingJoinT,
                 samplesPerSegment,
                 false);
 
-            // Follow the separate curved movement through the junction.
+            // 2. Follow the user's curved turn spline exactly.
             AddSplineSamples(
                 routePoints,
                 turningSpline,
@@ -192,17 +224,54 @@ namespace CustomTraffic.UTS
                 samplesPerSegment,
                 true);
 
-            // Rejoin the outgoing directional lane at its marker and continue
-            // in that lane's defined direction of travel.
+            // 3. Continue from the point nearest the turn end on the outgoing lane.
             AddSplineSamples(
                 routePoints,
                 outgoingSpline,
-                outgoingMarker.NormalizedPosition,
+                outgoingJoinT,
                 1f,
                 samplesPerSegment,
                 true);
 
+            Debug.Log(
+                "[UTS Traffic Bridge] Turn endpoints matched to road splines. " +
+                "Incoming T: " + incomingJoinT.ToString("F3") +
+                " (gap " + startGap.ToString("F2") + "m), outgoing T: " +
+                outgoingJoinT.ToString("F3") + " (gap " + endGap.ToString("F2") + "m).",
+                movement);
+
             return routePoints.Count >= 2;
+        }
+
+        private float FindClosestNormalizedPosition(
+            SplineContainer container,
+            Vector3 targetWorldPosition,
+            float expectedT,
+            out float closestGap)
+        {
+            float minT = Mathf.Max(0f, expectedT - endpointSearchWindow);
+            float maxT = Mathf.Min(1f, expectedT + endpointSearchWindow);
+
+            const int searchSteps = 80;
+            float bestT = expectedT;
+            float bestDistanceSquared = float.MaxValue;
+
+            for (int i = 0; i <= searchSteps; i++)
+            {
+                float fraction = i / (float)searchSteps;
+                float candidateT = Mathf.Lerp(minT, maxT, fraction);
+                Vector3 candidatePosition = EvaluateWorldPosition(container, candidateT);
+                float distanceSquared = (candidatePosition - targetWorldPosition).sqrMagnitude;
+
+                if (distanceSquared < bestDistanceSquared)
+                {
+                    bestDistanceSquared = distanceSquared;
+                    bestT = candidateT;
+                }
+            }
+
+            closestGap = Mathf.Sqrt(bestDistanceSquared);
+            return bestT;
         }
 
         private bool TryGetJunctionMarker(
@@ -249,7 +318,14 @@ namespace CustomTraffic.UTS
             {
                 float fraction = i / (float)(sampleCount - 1);
                 float t = Mathf.Lerp(startT, endT, fraction);
-                destination.Add(EvaluateWorldPosition(container, t));
+                Vector3 sample = EvaluateWorldPosition(container, t);
+
+                // Avoid duplicate points at spline joins without changing the curve.
+                if (destination.Count == 0 ||
+                    Vector3.SqrMagnitude(destination[destination.Count - 1] - sample) > 0.0001f)
+                {
+                    destination.Add(sample);
+                }
             }
         }
 
@@ -260,6 +336,45 @@ namespace CustomTraffic.UTS
 
             Vector3 local = new Vector3(evaluated.x, evaluated.y, evaluated.z);
             return container.transform.TransformPoint(local);
+        }
+
+        public override void CreateSpawnPoints()
+        {
+            if (!HasValidPath)
+            {
+                SpawnPoints = new SpawnPoint[0];
+                return;
+            }
+
+            SpawnPoints = new SpawnPoint[1];
+
+            Vector3 startPoint = points[0, 0];
+            Vector3 nextPoint = points[0, 2];
+
+            SpawnPoints[0] = SpawnPoint.CarCreate(
+                "UTS Traffic SpawnPoint (" + name + ")",
+                startPoint,
+                nextPoint,
+                lineSpacing,
+                0,
+                true,
+                this,
+                3f,
+                10f);
+        }
+
+        public override void SpawnOnePeople(int wayIndex, bool forward)
+        {
+            if (SpawnRequested != null)
+            {
+                SpawnRequested.Invoke(wayIndex, forward);
+            }
+            else
+            {
+                Debug.LogWarning(
+                    "[UTS Traffic Bridge] A vehicle reached the end of the route, but no test spawner is subscribed to the respawn event.",
+                    this);
+            }
         }
     }
 }
