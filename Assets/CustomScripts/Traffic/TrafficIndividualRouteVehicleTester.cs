@@ -7,8 +7,8 @@ namespace CustomTraffic
 {
     /// <summary>
     /// Spawns test vehicles, giving every vehicle its own independently
-    /// generated UTS route and destination. This is deliberately a one-at-a-time
-    /// integration tester; the production traffic manager will later control density.
+    /// generated UTS route and destination. It maintains a configurable local
+    /// traffic population while keeping every vehicle on its own private UTS path.
     /// </summary>
     [DisallowMultipleComponent]
     public class TrafficIndividualRouteVehicleTester : MonoBehaviour
@@ -34,6 +34,7 @@ namespace CustomTraffic
         [SerializeField, Min(1)] private int maximumActiveVehicles = 6;
         [SerializeField, Min(1)] private int spawnPositionAttempts = 8;
         [SerializeField, Min(1)] private int destinationAttemptsPerPosition = 20;
+        [SerializeField, Min(1f)] private float minimumVehicleSpawnSpacing = 25f;
 
         private readonly List<GameObject> activeTestVehicles = new List<GameObject>();
         private bool spawnInProgress;
@@ -145,7 +146,25 @@ namespace CustomTraffic
                     continue;
                 }
 
-                for (int destinationAttempt = 0;
+                bool tooCloseToExistingVehicle = false;
+                for (int vehicleIndex = 0; vehicleIndex < activeTestVehicles.Count; vehicleIndex++)
+                {
+                    GameObject existingVehicle = activeTestVehicles[vehicleIndex];
+                    if (existingVehicle != null &&
+                        Vector3.Distance(existingVehicle.transform.position, spawnPosition) < minimumVehicleSpawnSpacing)
+                    {
+                        tooCloseToExistingVehicle = true;
+                        break;
+                    }
+                }
+
+                if (tooCloseToExistingVehicle)
+                {
+                    lastReason = "Candidate spawn position was too close to existing traffic.";
+                    continue;
+                }
+
+                for (int destinationAttempt =
                     destinationAttempt < destinationAttemptsPerPosition && !routeFound;
                     destinationAttempt++)
                 {
