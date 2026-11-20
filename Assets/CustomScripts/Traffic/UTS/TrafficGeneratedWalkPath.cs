@@ -16,6 +16,7 @@ namespace CustomTraffic.UTS
         [Header("Calculated Route")]
         [SerializeField] private TrafficRoutePlanner routePlanner;
         [SerializeField] private TrafficLaneSpline startLane;
+        [SerializeField, Range(0f, 1f)] private float startNormalizedPosition;
         [SerializeField] private TrafficLaneSpline destinationLane;
 
         public event Action<int, bool> SpawnRequested;
@@ -25,6 +26,23 @@ namespace CustomTraffic.UTS
             pointLength != null &&
             pointLength.Length > 0 &&
             pointLength[0] >= 4;
+
+        /// <summary>
+        /// Supplies this path's route before its GameObject is activated.
+        /// Add/configure this component while its GameObject is inactive so
+        /// WalkPath.Awake builds the path only after these values are assigned.
+        /// </summary>
+        public void ConfigureRoute(
+            TrafficRoutePlanner planner,
+            TrafficLaneSpline lane,
+            float lanePosition,
+            TrafficLaneSpline destination)
+        {
+            routePlanner = planner;
+            startLane = lane;
+            startNormalizedPosition = Mathf.Clamp01(lanePosition);
+            destinationLane = destination;
+        }
 
         private void Reset()
         {
@@ -68,6 +86,7 @@ namespace CustomTraffic.UTS
 
             if (!routePlanner.TryBuildRoute(
                 startLane,
+                startNormalizedPosition,
                 destinationLane,
                 out TrafficRoutePlanner.RoutePlan plan,
                 out string routeReason))
