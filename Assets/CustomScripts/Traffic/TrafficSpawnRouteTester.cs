@@ -134,8 +134,7 @@ namespace CustomTraffic
 
             Debug.Log(
                 "[Traffic Spawn Route Test] Temporary UTS path created successfully. " +
-                "Its first waypoint is " + generatedPath.points[0, 1].ToString("F2") +
-                ". No vehicle has been spawned.",
+                "The path starts at the selected spawn position. No vehicle has been spawned.",
                 generatedPath);
         }
     }
