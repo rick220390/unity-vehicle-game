@@ -434,42 +434,6 @@ namespace CustomTraffic
                 }
             }
 
-            foreach (TrafficJunction junction in junctions)
-            {
-                foreach (TrafficJunctionMovement movement in junction.GetMovements())
-                {
-                    if (movement == null || !movement.IsConfigured(out _))
-                        continue;
-
-                    TrafficJunctionMarker incomingMarker =
-                        FindMarker(junction, movement.IncomingLane);
-
-                    if (incomingMarker == null ||
-                        !markerNodes.TryGetValue(incomingMarker, out GraphNode from))
-                        continue;
-
-                    Vector3 movementEnd = EvaluateContainerPosition(
-                        movement.MovementSpline, 1f);
-
-                    GraphNode to = FindOrCreateLaneNode(
-                        movement.OutgoingLane,
-                        movementEnd,
-                        laneNodes,
-                        nodes);
-
-                    if (to == null)
-                        continue;
-
-                    float turnDistance = EstimateSplineDistance(movement.MovementSpline);
-                    from.Edges.Add(new GraphEdge
-                    {
-                        To = to,
-                        Cost = Mathf.Max(0.1f, turnDistance),
-                        Movement = movement
-                    });
-                }
-            }
-
             // Add the continuous, one-way lane connections after the movement
             // endpoints have been inserted into their outgoing lane splines.
             foreach (KeyValuePair<TrafficLaneSpline, List<GraphNode>> entry in laneNodes)
