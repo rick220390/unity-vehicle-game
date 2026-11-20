@@ -375,8 +375,47 @@ namespace CustomTraffic
                 }
             }
 
-            // A lane is continuous and directional: traffic only advances
-            // from its first spline point towards its last spline point.
+            // A junction movement starts at the single marker on the
+            // incoming approach. Its spline endpoint determines where traffic
+            // joins the outgoing lane; we do not require a second marker there.
+            foreach (TrafficJunction junction in junctions)
+            {
+                foreach (TrafficJunctionMovement movement in junction.GetMovements())
+                {
+                    if (movement == null || !movement.IsConfigured(out _))
+                        continue;
+
+                    TrafficJunctionMarker incomingMarker =
+                        FindMarker(junction, movement.IncomingLane);
+
+                    if (incomingMarker == null ||
+                        !markerNodes.TryGetValue(incomingMarker, out GraphNode from))
+                        continue;
+
+                    Vector3 movementEnd = EvaluateContainerPosition(
+                        movement.MovementSpline, 1f);
+
+                    GraphNode to = FindOrCreateLaneNode(
+                        movement.OutgoingLane,
+                        movementEnd,
+                        laneNodes,
+                        nodes);
+
+                    if (to == null)
+                        continue;
+
+                    float turnDistance = EstimateSplineDistance(movement.MovementSpline);
+                    from.Edges.Add(new GraphEdge
+                    {
+                        To = to,
+                        Cost = Mathf.Max(0.1f, turnDistance),
+                        Movement = movement
+                    });
+                }
+            }
+
+            // Add the continuous, one-way lane connections after the movement
+            // endpoints have been inserted into their outgoing lane splines.
             foreach (KeyValuePair<TrafficLaneSpline, List<GraphNode>> entry in laneNodes)
             {
                 List<GraphNode> onLane = entry.Value;
@@ -392,35 +431,6 @@ namespace CustomTraffic
 
                     float distance = EstimateLaneDistance(entry.Key, from.T, to.T);
                     from.Edges.Add(new GraphEdge { To = to, Cost = distance });
-                }
-            }
-
-            // A junction movement is a directed connection from one lane
-            // marker to another. The movement spline supplies its route cost.
-            foreach (TrafficJunction junction in junctions)
-            {
-                foreach (TrafficJunctionMovement movement in junction.GetMovements())
-                {
-                    if (movement == null || !movement.IsConfigured(out _))
-                        continue;
-
-                    TrafficJunctionMarker incomingMarker =
-                        FindMarker(junction, movement.IncomingLane);
-                    TrafficJunctionMarker outgoingMarker =
-                        FindMarker(junction, movement.OutgoingLane);
-
-                    if (incomingMarker == null || outgoingMarker == null ||
-                        !markerNodes.TryGetValue(incomingMarker, out GraphNode from) ||
-                        !markerNodes.TryGetValue(outgoingMarker, out GraphNode to))
-                        continue;
-
-                    float turnDistance = EstimateSplineDistance(movement.MovementSpline);
-                    from.Edges.Add(new GraphEdge
-                    {
-                        To = to,
-                        Cost = Mathf.Max(0.1f, turnDistance),
-                        Movement = movement
-                    });
                 }
             }
 
@@ -445,6 +455,53 @@ namespace CustomTraffic
         {
             Vector3 position = EvaluateLanePosition(lane, t);
             return new GraphNode { Lane = lane, T = t, Position = position };
+        }
+
+        /// <summary>
+        /// Finds the closest position on an outgoing lane to the end of a
+        /// junction movement spline, then inserts that position into the lane
+        /// graph. This allows a turn to join the road without an opposite-side
+        /// junction approach marker.
+        /// </summary>
+        private GraphNode FindOrCreateLaneNode(
+            TrafficLaneSpline lane,
+            Vector3 targetPosition,
+            Dictionary<TrafficLaneSpline, List<GraphNode>> laneNodes,
+            List<GraphNode> allNodes)
+        {
+            if (!IsUsableLane(lane) ||
+                !laneNodes.TryGetValue(lane, out List<GraphNode> onLane))
+                return null;
+
+            const int searchSamples = 1000;
+            float bestT = 0f;
+            float bestSqrDistance = float.PositiveInfinity;
+
+            for (int i = 0; i <= searchSamples; i++)
+            {
+                float t = i / (float)searchSamples;
+                Vector3 candidate = EvaluateLanePosition(lane, t);
+                float sqrDistance = (candidate - targetPosition).sqrMagnitude;
+
+                if (sqrDistance < bestSqrDistance)
+                {
+                    bestSqrDistance = sqrDistance;
+                    bestT = t;
+                }
+            }
+
+            // Reuse an existing graph node if the projected point is already
+            // effectively at a lane endpoint or another marker.
+            foreach (GraphNode existing in onLane)
+            {
+                if (Mathf.Abs(existing.T - bestT) <= 0.001f)
+                    return existing;
+            }
+
+            GraphNode created = CreateNode(lane, bestT);
+            onLane.Add(created);
+            allNodes.Add(created);
+            return created;
         }
 
         private GraphNode FindNode(
