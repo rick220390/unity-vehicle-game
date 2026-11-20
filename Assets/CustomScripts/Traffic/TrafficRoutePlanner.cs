@@ -223,10 +223,109 @@ namespace CustomTraffic
                 Debug.Log("[Traffic Route Planner] Route found: " +
                     DescribeRoute(plan) + " | Approx. distance: " +
                     plan.TotalDistance.ToString("F1") + "m", this);
+
+                if (TryBuildRoutePoints(plan, out List<Vector3> waypoints, out string geometryReason))
+                {
+                    Debug.Log("[Traffic Route Planner] Route geometry generated: " +
+                        waypoints.Count + " world-space waypoints. Start: " +
+                        waypoints[0].ToString("F2") + " | End: " +
+                        waypoints[waypoints.Count - 1].ToString("F2"), this);
+                }
+                else
+                {
+                    Debug.LogWarning("[Traffic Route Planner] Route found, but waypoint generation failed: " +
+                        geometryReason, this);
+                }
             }
             else
             {
                 Debug.LogWarning("[Traffic Route Planner] " + reason, this);
+            }
+        }
+
+        /// <summary>
+        /// Converts a calculated route into an ordered list of world-space
+        /// waypoints. This is the geometry that will later be supplied to UTS.
+        /// It does not modify the scene or any existing UTS path.
+        /// </summary>
+        public bool TryBuildRoutePoints(
+            RoutePlan plan,
+            out List<Vector3> waypoints,
+            out string reason)
+        {
+            waypoints = new List<Vector3>();
+
+            if (plan == null || plan.Elements == null || plan.Elements.Count == 0)
+            {
+                reason = "The route plan is empty.";
+                return false;
+            }
+
+            foreach (RouteElement element in plan.Elements)
+            {
+                if (element == null)
+                    continue;
+
+                if (element.Type == ElementType.Lane)
+                {
+                    if (!IsUsableLane(element.Lane))
+                    {
+                        reason = "A route section contains an invalid lane.";
+                        waypoints.Clear();
+                        return false;
+                    }
+
+                    if (Mathf.Abs(element.EndT - element.StartT) < 0.0001f)
+                        continue;
+
+                    for (int i = 0; i <= laneDistanceSamples; i++)
+                    {
+                        float fraction = i / (float)laneDistanceSamples;
+                        float t = Mathf.Lerp(element.StartT, element.EndT, fraction);
+                        AddWaypointIfNew(
+                            waypoints,
+                            EvaluateLanePosition(element.Lane, t));
+                    }
+                }
+                else if (element.Type == ElementType.JunctionMovement)
+                {
+                    TrafficJunctionMovement movement = element.Movement;
+
+                    if (movement == null || !movement.IsConfigured(out string movementReason))
+                    {
+                        reason = "A route contains an invalid junction movement: " +
+                            (movement == null ? "missing movement reference." : movementReason);
+                        waypoints.Clear();
+                        return false;
+                    }
+
+                    for (int i = 0; i <= laneDistanceSamples; i++)
+                    {
+                        float t = i / (float)laneDistanceSamples;
+                        AddWaypointIfNew(
+                            waypoints,
+                            EvaluateContainerPosition(movement.MovementSpline, t));
+                    }
+                }
+            }
+
+            if (waypoints.Count < 2)
+            {
+                reason = "The generated route contains fewer than two usable waypoints.";
+                waypoints.Clear();
+                return false;
+            }
+
+            reason = string.Empty;
+            return true;
+        }
+
+        private void AddWaypointIfNew(List<Vector3> waypoints, Vector3 point)
+        {
+            if (waypoints.Count == 0 ||
+                Vector3.SqrMagnitude(waypoints[waypoints.Count - 1] - point) > 0.0001f)
+            {
+                waypoints.Add(point);
             }
         }
 
