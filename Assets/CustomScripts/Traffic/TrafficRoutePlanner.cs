@@ -19,6 +19,12 @@ namespace CustomTraffic
         [Header("Route Search")]
         [SerializeField, Min(2)] private int laneDistanceSamples = 16;
 
+        [Tooltip("Search distance either side of each junction marker when matching a turn endpoint to its lane spline.")]
+        [SerializeField, Range(0.01f, 0.4f)] private float endpointSearchWindow = 0.15f;
+
+        [Tooltip("Reject a junction movement when either endpoint is this far or more from its connected lane spline.")]
+        [SerializeField, Min(0.1f)] private float endpointWarningDistance = 3f;
+
         [Header("Inspector Test")]
         [SerializeField] private TrafficLaneSpline testStartLane;
         [SerializeField] private TrafficLaneSpline testDestinationLane;
@@ -340,9 +346,6 @@ namespace CustomTraffic
             List<GraphNode> nodes = new List<GraphNode>();
             Dictionary<TrafficLaneSpline, List<GraphNode>> laneNodes =
                 new Dictionary<TrafficLaneSpline, List<GraphNode>>();
-            Dictionary<TrafficJunctionMarker, GraphNode> markerNodes =
-                new Dictionary<TrafficJunctionMarker, GraphNode>();
-
             TrafficLaneSpline[] lanes = FindObjectsOfType<TrafficLaneSpline>(true);
 
             foreach (TrafficLaneSpline lane in lanes)
@@ -360,24 +363,77 @@ namespace CustomTraffic
 
             TrafficJunction[] junctions = FindObjectsOfType<TrafficJunction>(true);
 
+            // Each movement uses a marker on BOTH connected lanes.
+            // Markers constrain the endpoint search to the correct local section
+            // of a lane, which is especially important around roundabouts.
             foreach (TrafficJunction junction in junctions)
             {
-                foreach (TrafficJunctionMarker marker in junction.GetMarkers())
+                foreach (TrafficJunctionMovement movement in junction.GetMovements())
                 {
-                    if (marker == null || !marker.IsConfigured(out _) ||
-                        !laneNodes.TryGetValue(marker.Lane, out List<GraphNode> onLane))
+                    if (movement == null || !movement.IsConfigured(out _))
                         continue;
 
-                    GraphNode markerNode = CreateNode(marker.Lane, marker.NormalizedPosition);
-                    onLane.Add(markerNode);
-                    nodes.Add(markerNode);
-                    markerNodes[marker] = markerNode;
+                    TrafficJunctionMarker incomingMarker =
+                        FindMarker(junction, movement.IncomingLane);
+                    TrafficJunctionMarker outgoingMarker =
+                        FindMarker(junction, movement.OutgoingLane);
+
+                    if (incomingMarker == null || outgoingMarker == null)
+                    {
+                        Debug.LogWarning(
+                            "[Traffic Route Planner] Movement '" + movement.DisplayName +
+                            "' on junction '" + junction.name +
+                            "' needs a marker for both its incoming and outgoing lanes.",
+                            movement);
+                        continue;
+                    }
+
+                    Vector3 movementStart = EvaluateContainerPosition(
+                        movement.MovementSpline, 0f);
+                    Vector3 movementEnd = EvaluateContainerPosition(
+                        movement.MovementSpline, 1f);
+
+                    GraphNode from = FindOrCreateLaneNode(
+                        movement.IncomingLane,
+                        movementStart,
+                        incomingMarker.NormalizedPosition,
+                        laneNodes,
+                        nodes,
+                        out float incomingGap);
+
+                    GraphNode to = FindOrCreateLaneNode(
+                        movement.OutgoingLane,
+                        movementEnd,
+                        outgoingMarker.NormalizedPosition,
+                        laneNodes,
+                        nodes,
+                        out float outgoingGap);
+
+                    if (from == null || to == null)
+                        continue;
+
+                    if (incomingGap > endpointWarningDistance ||
+                        outgoingGap > endpointWarningDistance)
+                    {
+                        Debug.LogWarning(
+                            "[Traffic Route Planner] Skipping movement '" + movement.DisplayName +
+                            "' because a turn endpoint is too far from its marked lane. Incoming gap: " +
+                            incomingGap.ToString("F2") + "m; outgoing gap: " +
+                            outgoingGap.ToString("F2") + "m. Check the movement spline endpoints and junction markers.",
+                            movement);
+                        continue;
+                    }
+
+                    float turnDistance = EstimateSplineDistance(movement.MovementSpline);
+                    from.Edges.Add(new GraphEdge
+                    {
+                        To = to,
+                        Cost = Mathf.Max(0.1f, turnDistance),
+                        Movement = movement
+                    });
                 }
             }
 
-            // A junction movement starts at the single marker on the
-            // incoming approach. Its spline endpoint determines where traffic
-            // joins the outgoing lane; we do not require a second marker there.
             foreach (TrafficJunction junction in junctions)
             {
                 foreach (TrafficJunctionMovement movement in junction.GetMovements())
@@ -458,28 +514,35 @@ namespace CustomTraffic
         }
 
         /// <summary>
-        /// Finds the closest position on an outgoing lane to the end of a
-        /// junction movement spline, then inserts that position into the lane
-        /// graph. This allows a turn to join the road without an opposite-side
-        /// junction approach marker.
+        /// Finds the closest point to a movement endpoint only within the
+        /// local window around its junction marker, then inserts that point
+        /// into the directed lane graph.
         /// </summary>
         private GraphNode FindOrCreateLaneNode(
             TrafficLaneSpline lane,
             Vector3 targetPosition,
+            float expectedT,
             Dictionary<TrafficLaneSpline, List<GraphNode>> laneNodes,
-            List<GraphNode> allNodes)
+            List<GraphNode> allNodes,
+            out float closestGap)
         {
+            closestGap = float.PositiveInfinity;
+
             if (!IsUsableLane(lane) ||
                 !laneNodes.TryGetValue(lane, out List<GraphNode> onLane))
                 return null;
 
-            const int searchSamples = 1000;
-            float bestT = 0f;
+            float minT = Mathf.Max(0f, expectedT - endpointSearchWindow);
+            float maxT = Mathf.Min(1f, expectedT + endpointSearchWindow);
+
+            const int searchSamples = 80;
+            float bestT = expectedT;
             float bestSqrDistance = float.PositiveInfinity;
 
             for (int i = 0; i <= searchSamples; i++)
             {
-                float t = i / (float)searchSamples;
+                float fraction = i / (float)searchSamples;
+                float t = Mathf.Lerp(minT, maxT, fraction);
                 Vector3 candidate = EvaluateLanePosition(lane, t);
                 float sqrDistance = (candidate - targetPosition).sqrMagnitude;
 
@@ -490,8 +553,10 @@ namespace CustomTraffic
                 }
             }
 
-            // Reuse an existing graph node if the projected point is already
-            // effectively at a lane endpoint or another marker.
+            closestGap = Mathf.Sqrt(bestSqrDistance);
+
+            // Reuse an existing node if this connection lands at the same
+            // normalized position as another connection or lane endpoint.
             foreach (GraphNode existing in onLane)
             {
                 if (Mathf.Abs(existing.T - bestT) <= 0.001f)
