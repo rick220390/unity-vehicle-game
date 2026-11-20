@@ -79,7 +79,23 @@ namespace CustomTraffic
             out RoutePlan route,
             out string reason)
         {
+            return TryBuildRoute(startLane, 0f, destinationLane, out route, out reason);
+        }
+
+        /// <summary>
+        /// Calculates a route from a specific normalized position on the
+        /// starting lane to the end of the destination lane. Traffic travels
+        /// forward along each lane spline.
+        /// </summary>
+        public bool TryBuildRoute(
+            TrafficLaneSpline startLane,
+            float startT,
+            TrafficLaneSpline destinationLane,
+            out RoutePlan route,
+            out string reason)
+        {
             route = null;
+            startT = Mathf.Clamp01(startT);
 
             if (!IsUsableLane(startLane))
             {
@@ -93,9 +109,9 @@ namespace CustomTraffic
                 return false;
             }
 
-            List<GraphNode> nodes = BuildGraph();
+            List<GraphNode> nodes = BuildGraph(startLane, startT);
 
-            GraphNode start = FindNode(nodes, startLane, 0f);
+            GraphNode start = FindNode(nodes, startLane, startT);
             GraphNode destination = FindNode(nodes, destinationLane, 1f);
 
             if (start == null || destination == null)
@@ -341,7 +357,9 @@ namespace CustomTraffic
             }
         }
 
-        private List<GraphNode> BuildGraph()
+        private List<GraphNode> BuildGraph(
+            TrafficLaneSpline requestedStartLane,
+            float requestedStartT)
         {
             List<GraphNode> nodes = new List<GraphNode>();
             Dictionary<TrafficLaneSpline, List<GraphNode>> laneNodes =
@@ -359,6 +377,30 @@ namespace CustomTraffic
 
                 laneNodes[lane] = onLane;
                 nodes.AddRange(onLane);
+            }
+
+            // Insert the requested spawn position before lane edges are built.
+            // Sorting below then creates a forward-only edge from this point
+            // towards the next junction marker or lane endpoint.
+            if (IsUsableLane(requestedStartLane) &&
+                laneNodes.TryGetValue(requestedStartLane, out List<GraphNode> startLaneNodes))
+            {
+                bool alreadyExists = false;
+                foreach (GraphNode existing in startLaneNodes)
+                {
+                    if (Mathf.Abs(existing.T - requestedStartT) <= 0.0001f)
+                    {
+                        alreadyExists = true;
+                        break;
+                    }
+                }
+
+                if (!alreadyExists)
+                {
+                    GraphNode requestedStart = CreateNode(requestedStartLane, requestedStartT);
+                    startLaneNodes.Add(requestedStart);
+                    nodes.Add(requestedStart);
+                }
             }
 
             TrafficJunction[] junctions = FindObjectsOfType<TrafficJunction>(true);
