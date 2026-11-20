@@ -19,6 +19,10 @@ namespace CustomTraffic
         [Header("Route Search")]
         [SerializeField, Min(2)] private int laneDistanceSamples = 16;
 
+        [Header("Inspector Test")]
+        [SerializeField] private TrafficLaneSpline testStartLane;
+        [SerializeField] private TrafficLaneSpline testDestinationLane;
+
         public enum ElementType
         {
             Lane,
@@ -203,18 +207,18 @@ namespace CustomTraffic
             return true;
         }
 
-        [ContextMenu("Test Route Planner (First Two Lanes)")]
-        private void TestFirstTwoLanes()
+        [ContextMenu("Test Assigned Route")]
+        private void TestAssignedRoute()
         {
-            TrafficLaneSpline[] lanes = FindObjectsOfType<TrafficLaneSpline>(true);
-
-            if (lanes.Length < 2)
+            if (testStartLane == null || testDestinationLane == null)
             {
-                Debug.LogWarning("[Traffic Route Planner] At least two lane splines are needed for this test.", this);
+                Debug.LogWarning(
+                    "[Traffic Route Planner] Assign both Test Start Lane and Test Destination Lane in the Inspector first.",
+                    this);
                 return;
             }
 
-            if (TryBuildRoute(lanes[0], lanes[1], out RoutePlan plan, out string reason))
+            if (TryBuildRoute(testStartLane, testDestinationLane, out RoutePlan plan, out string reason))
             {
                 Debug.Log("[Traffic Route Planner] Route found: " +
                     DescribeRoute(plan) + " | Approx. distance: " +
