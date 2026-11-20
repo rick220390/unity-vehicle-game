@@ -28,12 +28,40 @@ namespace CustomTraffic
         [SerializeField, Min(1f)] private float followingDistance = 8f;
         [SerializeField, Min(0.1f)] private float waypointThreshold = 1.3f;
 
-        [Header("Test Behaviour")]
-        [SerializeField] private bool allowOnlyOneActiveTestVehicle = true;
+        [Header("Continuous Traffic")]
+        [SerializeField] private bool automaticallyMaintainTraffic = true;
+        [SerializeField, Min(0.5f)] private float spawnInterval = 4f;
+        [SerializeField, Min(1)] private int maximumActiveVehicles = 6;
+        [SerializeField, Min(1)] private int spawnPositionAttempts = 8;
+        [SerializeField, Min(1)] private int destinationAttemptsPerPosition = 20;
 
         private readonly List<GameObject> activeTestVehicles = new List<GameObject>();
-        private readonly List<GameObject> activeRouteObjects = new List<GameObject>();
         private bool spawnInProgress;
+        private Coroutine trafficLoop;
+
+        private void Start()
+        {
+            if (automaticallyMaintainTraffic)
+                trafficLoop = StartCoroutine(MaintainTraffic());
+        }
+
+        private IEnumerator MaintainTraffic()
+        {
+            while (true)
+            {
+                RemoveDestroyedVehicles();
+                if (!spawnInProgress && activeTestVehicles.Count < maximumActiveVehicles)
+                    StartCoroutine(CreateAndSpawnVehicle());
+                yield return new WaitForSeconds(spawnInterval);
+            }
+        }
+
+        private void RemoveDestroyedVehicles()
+        {
+            for (int i = activeTestVehicles.Count - 1; i >= 0; i--)
+                if (activeTestVehicles[i] == null)
+                    activeTestVehicles.RemoveAt(i);
+        }
 
         [ContextMenu("Spawn One Vehicle With Its Own Random Route")]
         public void SpawnOneVehicleWithOwnRoute()
@@ -50,19 +78,11 @@ namespace CustomTraffic
                 return;
             }
 
-            if (allowOnlyOneActiveTestVehicle)
+            RemoveDestroyedVehicles();
+            if (activeTestVehicles.Count >= maximumActiveVehicles)
             {
-                for (int i = activeTestVehicles.Count - 1; i >= 0; i--)
-                {
-                    if (activeTestVehicles[i] == null)
-                        activeTestVehicles.RemoveAt(i);
-                }
-
-                if (activeTestVehicles.Count > 0)
-                {
-                    Debug.LogWarning("[Individual Traffic Test] The previous test vehicle is still active. Let it finish before spawning another.", this);
-                    return;
-                }
+                Debug.LogWarning("[Individual Traffic Test] Maximum active traffic count reached.", this);
+                return;
             }
 
             StartCoroutine(CreateAndSpawnVehicle());
@@ -92,45 +112,73 @@ namespace CustomTraffic
                 yield break;
             }
 
-            if (!spawnSelector.TryFindSpawnPosition(
-                out TrafficLaneSpline startLane,
-                out float startT,
-                out Vector3 spawnPosition,
-                out Quaternion spawnRotation))
-            {
-                Debug.LogWarning("[Individual Traffic Test] No hidden spawn position was found. No vehicle was created.", this);
-                spawnInProgress = false;
-                yield break;
-            }
+            TrafficLaneSpline startLane = null;
+            TrafficLaneSpline destination = null;
+            float startT = 0f;
+            Vector3 spawnPosition = Vector3.zero;
+            Quaternion spawnRotation = Quaternion.identity;
+            TrafficRoutePlanner.RoutePlan plan = null;
+            List<Vector3> routePoints = null;
+            string lastReason = "No valid start/destination combination was found.";
+            bool routeFound = false;
 
             List<TrafficLaneSpline> destinations = new List<TrafficLaneSpline>();
             foreach (TrafficLaneSpline lane in destinationLanes)
-            {
-                if (lane != null && lane != startLane && lane.isActiveAndEnabled)
+                if (lane != null && lane.isActiveAndEnabled)
                     destinations.Add(lane);
-            }
 
             if (destinations.Count == 0)
             {
-                Debug.LogWarning("[Individual Traffic Test] No active destination lane different from the selected start lane is assigned.", this);
+                Debug.LogWarning("[Individual Traffic Test] No active destination lanes are assigned.", this);
                 spawnInProgress = false;
                 yield break;
             }
 
-            TrafficLaneSpline destination = destinations[Random.Range(0, destinations.Count)];
-
-            if (!routePlanner.TryBuildRoute(startLane, startT, destination,
-                out TrafficRoutePlanner.RoutePlan plan, out string routeReason))
+            // A random destination may be unreachable from a particular point.
+            // Try several destinations, then choose a new hidden start position.
+            for (int positionAttempt = 0; positionAttempt < spawnPositionAttempts && !routeFound; positionAttempt++)
             {
-                Debug.LogWarning("[Individual Traffic Test] Could not build this vehicle's route: " + routeReason, this);
-                spawnInProgress = false;
-                yield break;
+                if (!spawnSelector.TryFindSpawnPosition(out startLane, out startT,
+                    out spawnPosition, out spawnRotation))
+                {
+                    lastReason = "No hidden spawn position was found near the player.";
+                    continue;
+                }
+
+                for (int destinationAttempt = 0;
+                    destinationAttempt < destinationAttemptsPerPosition && !routeFound;
+                    destinationAttempt++)
+                {
+                    TrafficLaneSpline candidate = destinations[Random.Range(0, destinations.Count)];
+                    if (candidate == startLane)
+                        continue;
+
+                    if (!routePlanner.TryBuildRoute(startLane, startT, candidate,
+                        out TrafficRoutePlanner.RoutePlan candidatePlan, out string routeReason))
+                    {
+                        lastReason = routeReason;
+                        continue;
+                    }
+
+                    if (!routePlanner.TryBuildRoutePoints(candidatePlan,
+                        out List<Vector3> candidatePoints, out string geometryReason) ||
+                        candidatePoints == null || candidatePoints.Count < 3)
+                    {
+                        lastReason = "Route geometry invalid: " + geometryReason;
+                        continue;
+                    }
+
+                    destination = candidate;
+                    plan = candidatePlan;
+                    routePoints = candidatePoints;
+                    routeFound = true;
+                }
             }
 
-            if (!routePlanner.TryBuildRoutePoints(plan, out List<Vector3> routePoints, out string geometryReason) ||
-                routePoints == null || routePoints.Count < 3)
+            if (!routeFound)
             {
-                Debug.LogWarning("[Individual Traffic Test] Route geometry is invalid: " + geometryReason, this);
+                Debug.LogWarning("[Individual Traffic Test] Could not find a reachable route after " +
+                    spawnPositionAttempts + " spawn positions. Last reason: " + lastReason, this);
                 spawnInProgress = false;
                 yield break;
             }
@@ -208,9 +256,8 @@ namespace CustomTraffic
             ai.bcSize = ai.bc.bounds.size;
             movePath.SetLookPosition();
 
-            path.SpawnRequested += HandleRouteFinished;
+            path.SpawnRequested += (wayIndex, forward) => HandleRouteFinished(path, routeObject, wayIndex, forward);
             activeTestVehicles.Add(vehicle);
-            activeRouteObjects.Add(routeObject);
 
             Debug.Log("[Individual Traffic Test] Spawned '" + vehicle.name +
                 "' | Start: " + startLane.LaneDisplayName + " at T=" + startT.ToString("F3") +
@@ -222,36 +269,22 @@ namespace CustomTraffic
             spawnInProgress = false;
         }
 
-        private void HandleRouteFinished(int wayIndex, bool forward)
+        private void HandleRouteFinished(
+            TrafficGeneratedWalkPath path, GameObject routeObject, int wayIndex, bool forward)
         {
             if (wayIndex != 0 || !forward)
                 return;
 
-            // UTS destroys the vehicle immediately after requesting the route-end spawn.
-            // We intentionally do not respawn it at the same point.
-            StartCoroutine(CleanupCompletedRoutes());
+            StartCoroutine(CleanupCompletedRoute(path, routeObject));
         }
 
-        private IEnumerator CleanupCompletedRoutes()
+        private IEnumerator CleanupCompletedRoute(
+            TrafficGeneratedWalkPath path, GameObject routeObject)
         {
+            // UTS destroys the vehicle after requesting the route-end spawn.
             yield return new WaitForSeconds(1f);
-
-            for (int i = activeRouteObjects.Count - 1; i >= 0; i--)
-            {
-                GameObject routeObject = activeRouteObjects[i];
-                if (routeObject == null)
-                {
-                    activeRouteObjects.RemoveAt(i);
-                    continue;
-                }
-
-                TrafficGeneratedWalkPath path = routeObject.GetComponent<TrafficGeneratedWalkPath>();
-                DestroyRouteAndSpawnPoints(path, routeObject);
-                activeRouteObjects.RemoveAt(i);
-            }
-
-            for (int i = activeTestVehicles.Count - 1; i >= 0; i--)
-                if (activeTestVehicles[i] == null) activeTestVehicles.RemoveAt(i);
+            DestroyRouteAndSpawnPoints(path, routeObject);
+            RemoveDestroyedVehicles();
         }
 
         private void DestroyRouteAndSpawnPoints(TrafficGeneratedWalkPath path, GameObject routeObject)
