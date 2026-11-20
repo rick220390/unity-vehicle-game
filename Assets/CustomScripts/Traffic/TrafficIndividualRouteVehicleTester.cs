@@ -164,17 +164,36 @@ namespace CustomTraffic
                     continue;
                 }
 
-                for (int destinationAttempt =
-                    destinationAttempt < destinationAttemptsPerPosition && !routeFound;
+                // Test each possible destination at most once for this start lane.
+                // Randomise the order, but never repeatedly pick the same unreachable
+                // opposite-direction lane pair.
+                List<TrafficLaneSpline> shuffledDestinations =
+                    new List<TrafficLaneSpline>();
+
+                foreach (TrafficLaneSpline lane in destinations)
+                    if (lane != startLane)
+                        shuffledDestinations.Add(lane);
+
+                for (int i = shuffledDestinations.Count - 1; i > 0; i--)
+                {
+                    int swapIndex = Random.Range(0, i + 1);
+                    TrafficLaneSpline temporary = shuffledDestinations[i];
+                    shuffledDestinations[i] = shuffledDestinations[swapIndex];
+                    shuffledDestinations[swapIndex] = temporary;
+                }
+
+                int attempts = Mathf.Min(destinationAttemptsPerPosition, shuffledDestinations.Count);
+                for (int destinationAttempt = 0;
+                    destinationAttempt < attempts && !routeFound;
                     destinationAttempt++)
                 {
-                    TrafficLaneSpline candidate = destinations[Random.Range(0, destinations.Count)];
-                    if (candidate == startLane)
-                        continue;
+                    TrafficLaneSpline candidate = shuffledDestinations[destinationAttempt];
 
                     if (!routePlanner.TryBuildRoute(startLane, startT, candidate,
                         out TrafficRoutePlanner.RoutePlan candidatePlan, out string routeReason))
                     {
+                        // This lane is not reachable from this start position.
+                        // Silently skip it and test the next unique destination.
                         lastReason = routeReason;
                         continue;
                     }
