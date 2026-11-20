@@ -291,10 +291,16 @@ namespace CustomTraffic
                 {
                     TrafficJunctionMovement movement = element.Movement;
 
-                    if (movement == null || !movement.IsConfigured(out string movementReason))
+                    if (movement == null)
                     {
-                        reason = "A route contains an invalid junction movement: " +
-                            (movement == null ? "missing movement reference." : movementReason);
+                        reason = "A route contains a missing junction movement reference.";
+                        waypoints.Clear();
+                        return false;
+                    }
+
+                    if (!movement.IsConfigured(out string movementReason))
+                    {
+                        reason = "A route contains an invalid junction movement: " + movementReason;
                         waypoints.Clear();
                         return false;
                     }
