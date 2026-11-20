@@ -173,9 +173,9 @@ namespace CustomTraffic
                 yield break;
             }
 
-            GameObject prefab = validPrefabs[Random.Range(0, validPrefabs.Count)];
-            GameObject vehicle = Instantiate(prefab, start, Quaternion.LookRotation(next - start, Vector3.up));
-            vehicle.name = prefab.name + " - Individual Route Test";
+            GameObject selectedPrefab = validPrefabs[Random.Range(0, validPrefabs.Count)];
+            GameObject vehicle = Instantiate(selectedPrefab, start, Quaternion.LookRotation(next - start, Vector3.up));
+            vehicle.name = selectedPrefab.name + " - Individual Route Test";
 
             MovePath movePath = vehicle.AddComponent<MovePath>();
             movePath.walkPath = path;
