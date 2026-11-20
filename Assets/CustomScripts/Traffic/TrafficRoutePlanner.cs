@@ -27,6 +27,7 @@ namespace CustomTraffic
 
         [Header("Inspector Test")]
         [SerializeField] private TrafficLaneSpline testStartLane;
+        [SerializeField, Range(0f, 1f)] private float testStartNormalizedPosition;
         [SerializeField] private TrafficLaneSpline testDestinationLane;
 
         public enum ElementType
@@ -240,7 +241,12 @@ namespace CustomTraffic
                 return;
             }
 
-            if (TryBuildRoute(testStartLane, testDestinationLane, out RoutePlan plan, out string reason))
+            if (TryBuildRoute(
+                testStartLane,
+                testStartNormalizedPosition,
+                testDestinationLane,
+                out RoutePlan plan,
+                out string reason))
             {
                 Debug.Log("[Traffic Route Planner] Route found: " +
                     DescribeRoute(plan) + " | Approx. distance: " +
