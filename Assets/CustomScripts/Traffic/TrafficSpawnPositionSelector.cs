@@ -4,7 +4,7 @@ using UnityEngine.Splines;
 namespace CustomTraffic
 {
     /// <summary>
-    /// Finds a random position on a directional road lane near the player.
+    /// Finds a random, hidden position on a directional road lane near the player.
     /// This component only selects positions; it does not create vehicles.
     /// </summary>
     [DisallowMultipleComponent]
@@ -16,7 +16,11 @@ namespace CustomTraffic
 
         [Header("Player Area")]
         [SerializeField, Min(1f)] private float activeRadius = 100f;
-        [SerializeField, Min(0f)] private float minimumPlayerDistance = 20f;
+        [SerializeField, Min(0f)] private float minimumPlayerDistance = 50f;
+
+        [Header("Junction Avoidance")]
+        [Tooltip("Rejects positions this close to a junction centre or one of its lane markers.")]
+        [SerializeField, Min(1f)] private float junctionExclusionRadius = 30f;
 
         [Header("Lane Position")]
         [Tooltip("Avoids selecting the very beginning or end of a lane spline.")]
@@ -26,24 +30,23 @@ namespace CustomTraffic
         [SerializeField] private bool rejectVisiblePositions = true;
         [Tooltip("Only colliders on these layers can hide a spawn position from the camera.")]
         [SerializeField] private LayerMask obstructionMask = ~0;
-        [SerializeField, Min(0f)] private float visibilityTargetHeight = 1f;
+        [SerializeField, Min(0f)] private float visibilityTargetHeight = 1.5f;
 
         [Header("Search")]
-        [SerializeField, Min(1)] private int searchAttempts = 80;
+        [SerializeField, Min(1)] private int searchAttempts = 150;
 
         [Header("Debug")]
         [SerializeField] private bool drawLastFoundPosition = true;
         [SerializeField, Min(0.1f)] private float gizmoSize = 1f;
 
         private TrafficLaneSpline[] cachedLanes;
+        private TrafficJunction[] cachedJunctions;
+        private TrafficJunctionMarker[] cachedJunctionMarkers;
+
         private bool hasLastFoundPosition;
         private Vector3 lastFoundPosition;
         private Vector3 lastFoundDirection;
 
-        /// <summary>
-        /// Attempts to find a random valid position on a road lane near the player.
-        /// The returned T value is the normalized position along the lane spline.
-        /// </summary>
         public bool TryFindSpawnPosition(
             out TrafficLaneSpline selectedLane,
             out float selectedT,
@@ -71,7 +74,8 @@ namespace CustomTraffic
                 return false;
             }
 
-            if (cachedLanes == null || cachedLanes.Length == 0)
+            if (cachedLanes == null || cachedLanes.Length == 0 ||
+                cachedJunctions == null || cachedJunctionMarkers == null)
                 RefreshLaneCache();
 
             if (cachedLanes == null || cachedLanes.Length == 0)
@@ -88,7 +92,6 @@ namespace CustomTraffic
                     continue;
 
                 float t = Random.Range(laneEndMargin, 1f - laneEndMargin);
-
                 Vector3 position = EvaluateLanePosition(lane, t);
                 Vector3 direction = EvaluateLaneDirection(lane, t);
 
@@ -96,9 +99,11 @@ namespace CustomTraffic
                     continue;
 
                 float distanceFromPlayer = Vector3.Distance(player.position, position);
-
                 if (distanceFromPlayer < minimumPlayerDistance ||
                     distanceFromPlayer > activeRadius)
+                    continue;
+
+                if (IsNearJunction(position))
                     continue;
 
                 if (rejectVisiblePositions && IsVisibleFromPlayerCamera(position))
@@ -112,7 +117,6 @@ namespace CustomTraffic
                 lastFoundPosition = position;
                 lastFoundDirection = direction;
                 hasLastFoundPosition = true;
-
                 return true;
             }
 
@@ -120,15 +124,16 @@ namespace CustomTraffic
         }
 
         /// <summary>
-        /// Rebuilds the lane cache. Call this if road lanes are created at runtime.
+        /// Rebuilds lane and junction caches. Call this if the network is created at runtime.
         /// </summary>
-        [ContextMenu("Refresh Lane Cache")]
+        [ContextMenu("Refresh Lane And Junction Cache")]
         public void RefreshLaneCache()
         {
             TrafficLaneSpline[] foundLanes = FindObjectsOfType<TrafficLaneSpline>(true);
+            TrafficJunction[] foundJunctions = FindObjectsOfType<TrafficJunction>(true);
+            TrafficJunctionMarker[] foundMarkers = FindObjectsOfType<TrafficJunctionMarker>(true);
 
             int activeCount = 0;
-
             for (int i = 0; i < foundLanes.Length; i++)
             {
                 if (IsUsableLane(foundLanes[i]))
@@ -137,14 +142,20 @@ namespace CustomTraffic
 
             cachedLanes = new TrafficLaneSpline[activeCount];
             int index = 0;
-
             for (int i = 0; i < foundLanes.Length; i++)
             {
                 if (IsUsableLane(foundLanes[i]))
                     cachedLanes[index++] = foundLanes[i];
             }
 
-            Debug.Log("[Traffic Spawn Selector] Cached " + cachedLanes.Length + " active road lanes.", this);
+            cachedJunctions = foundJunctions;
+            cachedJunctionMarkers = foundMarkers;
+
+            Debug.Log(
+                "[Traffic Spawn Selector] Cached " + cachedLanes.Length +
+                " active road lanes, " + cachedJunctions.Length +
+                " junctions and " + cachedJunctionMarkers.Length + " junction markers.",
+                this);
         }
 
         private bool IsUsableLane(TrafficLaneSpline lane)
@@ -154,6 +165,44 @@ namespace CustomTraffic
                 lane.SplineContainer != null &&
                 lane.SplineContainer.Spline != null &&
                 lane.SplineContainer.Spline.Count >= 2;
+        }
+
+        private bool IsNearJunction(Vector3 candidatePosition)
+        {
+            float exclusionSqr = junctionExclusionRadius * junctionExclusionRadius;
+
+            // Check the junction's configured centre.
+            if (cachedJunctions != null)
+            {
+                for (int i = 0; i < cachedJunctions.Length; i++)
+                {
+                    TrafficJunction junction = cachedJunctions[i];
+                    if (junction == null || !junction.isActiveAndEnabled)
+                        continue;
+
+                    if ((candidatePosition - junction.transform.position).sqrMagnitude <= exclusionSqr)
+                        return true;
+                }
+            }
+
+            // Also check the exact lane positions stored by junction markers.
+            // This catches junctions whose parent transform is not centred on the road.
+            if (cachedJunctionMarkers != null)
+            {
+                for (int i = 0; i < cachedJunctionMarkers.Length; i++)
+                {
+                    TrafficJunctionMarker marker = cachedJunctionMarkers[i];
+                    if (marker == null || !marker.isActiveAndEnabled ||
+                        !marker.IsConfigured(out _) ||
+                        !marker.TryGetWorldPosition(out Vector3 markerPosition))
+                        continue;
+
+                    if ((candidatePosition - markerPosition).sqrMagnitude <= exclusionSqr)
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         private Vector3 EvaluateLanePosition(TrafficLaneSpline lane, float t)
@@ -181,17 +230,13 @@ namespace CustomTraffic
 
             bool insideCameraView =
                 viewportPosition.z > 0f &&
-                viewportPosition.x >= 0f &&
-                viewportPosition.x <= 1f &&
-                viewportPosition.y >= 0f &&
-                viewportPosition.y <= 1f;
+                viewportPosition.x >= 0f && viewportPosition.x <= 1f &&
+                viewportPosition.y >= 0f && viewportPosition.y <= 1f;
 
-            // Outside the camera's view frustum: it cannot currently be seen.
+            // A position outside the camera's view frustum cannot currently be seen.
             if (!insideCameraView)
                 return false;
 
-            // Inside the view: accept it only if something on the obstruction
-            // layers blocks the camera's line of sight to the candidate.
             Vector3 origin = playerCamera.transform.position;
             Vector3 toTarget = targetPosition - origin;
             float distance = toTarget.magnitude;
@@ -228,16 +273,23 @@ namespace CustomTraffic
                     "[Traffic Spawn Selector] Found position on lane '" +
                     lane.LaneDisplayName + "' at T=" + t.ToString("F3") +
                     ". Position: " + position.ToString("F2") +
-                    ". Facing: " + rotation.eulerAngles.ToString("F1"),
+                    ". Distance from player: " + Vector3.Distance(player.position, position).ToString("F1") +
+                    "m. Facing: " + rotation.eulerAngles.ToString("F1"),
                     this);
             }
             else
             {
                 Debug.LogWarning(
                     "[Traffic Spawn Selector] No suitable hidden road position found. " +
-                    "Try increasing Search Attempts or Active Radius, or check the camera obstruction layers.",
+                    "Try increasing Active Radius or Search Attempts, or check junction exclusion and camera obstruction settings.",
                     this);
             }
+        }
+
+        private void OnValidate()
+        {
+            minimumPlayerDistance = Mathf.Min(minimumPlayerDistance, activeRadius);
+            junctionExclusionRadius = Mathf.Max(1f, junctionExclusionRadius);
         }
 
         private void OnDrawGizmosSelected()
